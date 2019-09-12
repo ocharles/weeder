@@ -4,7 +4,7 @@ build-type: Simple
 version: 1.0
 
 executable weeder
-  build-depends: base, algebraic-graphs, ghc, containers, ghc-paths
+  build-depends: base, algebraic-graphs, ghc, containers, ghc-paths, mtl, transformers
   hs-source-dirs: src
   main-is: Weeder.hs
   ghc-options: -fwrite-ide-info
