@@ -1,0 +1,4 @@
+*.hi
+*.hie
+*.o
+dist-newstyle
