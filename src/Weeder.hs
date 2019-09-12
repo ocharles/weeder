@@ -12,9 +12,7 @@ import "algebraic-graphs" Algebra.Graph.Export.Dot ( defaultStyle, export, verte
 
 import "base" Data.Foldable ( for_, toList )
 import "base" Data.Maybe ( maybeToList )
-import "base" Data.Functor ( (<&>) )
 import "base" Data.List ( intercalate )
-import "base" Data.Monoid ( First( First ), getFirst )
 import "base" Data.Traversable ( for )
 import "base" System.Environment ( getArgs )
 
@@ -95,7 +93,7 @@ main = do
 
           return
             ( overlays ( map ( dependencyGraph dynFlags ) ( toList hieASTs ) )
-            , foldMap roots hieASTs
+            , foldMap findRoots hieASTs
             )
       )
 
@@ -116,11 +114,11 @@ main = do
             g
         )
 
-    declarations =
+    allDeclarations =
       Set.fromList ( vertexList g )
 
   for_
-    ( declarations Set.\\ reachableSet )
+    ( allDeclarations Set.\\ reachableSet )
     \Declaration{ declModule, declOccName } ->
       putStrLn ( moduleNameString ( moduleName declModule ) <> "." <> occNameString declOccName )
 
@@ -269,8 +267,8 @@ declarations Node{ nodeInfo = NodeInfo{ nodeIdentifiers }, nodeChildren } =
 -- Declarations that must be in the root set. We can't yet understand
 -- reachability on these, so err on the side of caution and treat them as
 -- implicitly reachable.
-roots :: HieAST a -> [ Declaration ]
-roots n@Node{ nodeInfo = NodeInfo{ nodeAnnotations }, nodeChildren } =
+findRoots :: HieAST a -> [ Declaration ]
+findRoots n@Node{ nodeInfo = NodeInfo{ nodeAnnotations }, nodeChildren } =
   if ( "ClsInstD", "InstDecl" ) `Set.member` nodeAnnotations then
     uses n
 
@@ -278,7 +276,7 @@ roots n@Node{ nodeInfo = NodeInfo{ nodeAnnotations }, nodeChildren } =
     declarations n
 
   else
-    foldMap roots nodeChildren
+    foldMap findRoots nodeChildren
 
 
 uses :: HieAST a -> [ Declaration ]
