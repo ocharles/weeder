@@ -11,6 +11,14 @@ import "algebraic-graphs" Algebra.Graph ( Graph, edge, empty, overlay, overlays,
 import "algebraic-graphs" Algebra.Graph.ToGraph ( dfs )
 import "algebraic-graphs" Algebra.Graph.Export.Dot ( defaultStyle, export, vertexAttributes, Attribute( (:=) ) )
 
+import "ansi-terminal" System.Console.ANSI
+  ( Color( Red, White )
+  , ColorIntensity( Vivid )
+  , ConsoleLayer( Foreground, Background )
+  , SGR( SetColor )
+  , setSGRCode
+  )
+
 import "base" Control.Applicative ( Alternative )
 import "base" Control.Monad ( guard, msum )
 import "base" Control.Monad.IO.Class ( liftIO )
@@ -62,7 +70,7 @@ import "ghc" OccName
   , varName
   )
 import "ghc" Outputable ( Outputable, showSDoc )
-import "ghc" SrcLoc ( RealSrcSpan )
+import "ghc" SrcLoc ( RealSrcSpan, srcLocLine, srcLocCol, realSrcSpanStart, realSrcSpanEnd )
 import "ghc" SysTools ( initSysTools )
 import "ghc" UniqSupply ( mkSplitUniqSupply )
 
@@ -99,13 +107,6 @@ main = do
 
         traverse_ analyse hieASTs
 
-        -- putStrLn ( foldMap ( showSDoc dynFlags . ppHie ) hieASTs )
-
-        -- return
-        --   ( overlays ( map ( dependencyGraph dynFlags ) ( toList hieASTs ) )
-        --   , foldMap findRoots hieASTs
-        --   )
-
   let
     reachableSet =
       reachable
@@ -121,11 +122,37 @@ main = do
               }
             )
         )
+  -- print
+  --   ( Set.map
+  --       ( \d -> ( declarationStableName d, Map.lookup d ( declarationSites analysis ) ) )
+  --       ( allDeclarations analysis Set.\\ reachableSet )
+  --   )
 
-  for_
-    ( allDeclarations analysis Set.\\ reachableSet )
-    \Declaration{ declModule, declOccName } ->
-      putStrLn ( moduleNameString ( moduleName declModule ) <> "." <> occNameString declOccName )
+  let
+    highlightingMap =
+      Map.unionsWith
+        overlayHighlight
+        ( foldMap
+            ( \d ->
+                foldMap
+                  ( foldMap \m -> [ highlight m ] )
+                  ( Map.lookup d ( declarationSites analysis ) )
+            )
+            ( allDeclarations analysis Set.\\ reachableSet )
+        )
+
+  source <-
+    lines <$> readFile "src/Weeder.hs"
+
+  putStrLn ( zipHighlighting ( Map.toList highlightingMap ) ( zip [1..] source ) )
+
+  -- for_ ( allDeclarations analysis Set.\\ reachableSet ) \d ->
+  --   print ( Map.lookup d ( declarationSites analysis ) )
+
+  -- for_
+  --   ( allDeclarations analysis Set.\\ reachableSet )
+  --   \Declaration{ declModule, declOccName } ->
+  --     putStrLn ( moduleNameString ( moduleName declModule ) <> "." <> occNameString declOccName )
 
   writeFile
     "graph.dot"
@@ -175,10 +202,13 @@ data Analysis =
   Analysis
     { dependencyGraph :: Graph Declaration
       -- ^ A graph between declarations, capturing dependencies.
-    , declarationSites :: Map Declaration RealSrcSpan
+    , declarationSites :: Map Declaration ( Set RealSrcSpan )
       -- ^ A partial mapping between declarations and their definition site.
       -- This Map is partial as we don't always know where a Declaration was
       -- defined (e.g., it may come from a package without source code).
+      -- We capture a set of spans, because a declaration may be defined in
+      -- multiple locations, e.g., a type signature for a function separate
+      -- from its definition.
     , implicitRoots :: Set Declaration
       -- ^ The Set of all Declarations that are always reachable. This is used
       -- to capture knowledge not yet modelled in weeder, such as instance
@@ -219,6 +249,18 @@ addImplicitRoot x =
   modify' \a -> a { implicitRoots = implicitRoots a <> Set.singleton x }
 
 
+addDeclaration :: MonadState Analysis m => Declaration -> RealSrcSpan -> m ()
+addDeclaration decl span =
+  modify' \a ->
+    a
+      { declarationSites =
+          Map.unionWith
+            Set.union
+            ( declarationSites a )
+            ( Map.singleton decl ( Set.singleton span ) )
+      }
+
+
 topLevelAnalysis :: MonadState Analysis m => HieAST a -> m ()
 topLevelAnalysis n@Node{ nodeInfo = NodeInfo{ nodeAnnotations }, nodeChildren } = do
   analysed <-
@@ -251,13 +293,15 @@ topLevelAnalysis n@Node{ nodeInfo = NodeInfo{ nodeAnnotations }, nodeChildren } 
 
 -- | Try and analyse a HieAST node as if it's a FunBind
 analyseFunBind :: ( Alternative m, MonadState Analysis m ) => HieAST a -> m ()
-analyseFunBind n@Node{ nodeChildren }= do
+analyseFunBind n@Node{ nodeChildren, nodeSpan }= do
   guard ( not ( null nodeChildren ) )
 
   declarations <-
     findDeclarations n
 
-  for_ declarations \d ->
+  for_ declarations \d -> do
+    addDeclaration d nodeSpan
+
     for_ ( uses n ) \use ->
       addDependency d use
 
@@ -345,13 +389,13 @@ findDeclarations Node{ nodeInfo = NodeInfo{ nodeIdentifiers }, nodeChildren, nod
                 mempty
 
               else
-                foldMap ( \d -> Map.singleton d nodeSpan ) ( nameToDeclaration name )
+                foldMap
+                  ( \d -> Map.singleton d ( Set.singleton nodeSpan ) )
+                  ( nameToDeclaration name )
         )
         ( Map.toList nodeIdentifiers )
 
-  modify' \a -> a { declarationSites = declarationSites a <> here }
-
-  Set.union ( Set.fromList ( Map.keys here) ) . Set.unions
+  Set.union ( Set.fromList ( Map.keys here ) ) . Set.unions
     <$> traverse findDeclarations nodeChildren
 
 
@@ -395,3 +439,282 @@ nameToDeclaration name = do
     nameModule_maybe name
 
   return Declaration { declModule = m, declOccName = nameOccName name }
+
+
+class Foo a where
+  foo :: a -> Bool
+
+-- instance Foo Bool where
+--   foo _ = unused
+
+
+
+data Skip =
+  Skip Int Highlight | SkipToEndOfLine
+  deriving ( Show )
+
+
+data Highlight =
+  Highlight Int Skip | HighlightToEndOfLine
+  deriving ( Show )
+
+
+overlayHighlight :: Highlight -> Highlight -> Highlight
+overlayHighlight HighlightToEndOfLine _ =
+  HighlightToEndOfLine
+overlayHighlight _ HighlightToEndOfLine =
+  HighlightToEndOfLine
+overlayHighlight ( Highlight x xs ) ( Highlight y ys ) =
+  case compare x y of
+    LT ->
+      case dropSkip ( y - x ) xs of
+        Left skip ->
+          Highlight y ( overlaySkip skip ys )
+
+        Right HighlightToEndOfLine ->
+          HighlightToEndOfLine
+
+        Right highlight ->
+          overlaySkipHighlight ys highlight
+
+    EQ ->
+      Highlight x ( overlaySkip xs ys )
+
+    GT ->
+      overlayHighlight ( Highlight y ys ) ( Highlight x xs )
+
+
+
+overlaySkip :: Skip -> Skip -> Skip
+overlaySkip SkipToEndOfLine x =
+  x
+overlaySkip x SkipToEndOfLine =
+  x
+overlaySkip ( Skip x xs ) ( Skip y ys ) =
+  case compare x y of
+    LT ->
+      Skip x ( overlaySkipHighlight ( Skip ( y - x ) ys ) xs )
+
+    EQ ->
+      Skip x ( overlayHighlight xs ys )
+
+    GT ->
+      Skip y ( overlaySkipHighlight ( Skip ( x - y ) xs ) ys )
+
+
+overlaySkipHighlight :: Skip -> Highlight -> Highlight
+overlaySkipHighlight _ HighlightToEndOfLine =
+  HighlightToEndOfLine
+overlaySkipHighlight SkipToEndOfLine h =
+  h
+overlaySkipHighlight ( Skip x xs ) ( Highlight y ys ) =
+  case compare x y of
+    LT ->
+      case dropHighlight ( y - x ) xs of
+        Left skip ->
+          Highlight y ( overlaySkip skip ys )
+
+        Right highlight ->
+          case overlaySkipHighlight ys xs of
+            HighlightToEndOfLine ->
+              HighlightToEndOfLine
+
+            Highlight z zs ->
+              Highlight ( y + z ) zs
+
+    EQ ->
+      case overlaySkipHighlight ys xs of
+        HighlightToEndOfLine ->
+          HighlightToEndOfLine
+
+        Highlight z zs ->
+          Highlight ( y + z ) zs
+
+    GT ->
+      Highlight y ( overlaySkip ( Skip ( x - y ) xs ) ys )
+
+
+dropSkip :: Int -> Skip -> Either Skip Highlight
+dropSkip _ SkipToEndOfLine =
+  Left SkipToEndOfLine
+dropSkip x ( Skip y highlight ) =
+  case compare x y of
+    LT ->
+      Left ( Skip ( y - x ) highlight )
+
+    EQ ->
+      Right highlight
+
+    GT ->
+      dropHighlight ( x - y ) highlight
+
+
+dropHighlight :: Int -> Highlight -> Either Skip Highlight
+dropHighlight _ HighlightToEndOfLine =
+  Right HighlightToEndOfLine
+dropHighlight x ( Highlight y skip ) =
+  case compare x y of
+    LT ->
+      Right ( Highlight ( y - x ) skip )
+
+    EQ ->
+      Left skip
+
+    GT ->
+      dropSkip ( x - y ) skip
+
+
+highlight :: RealSrcSpan -> Map Int Highlight
+highlight span =
+  if startLine == endLine then
+    Map.singleton
+      startLine
+      ( Highlight
+          0
+          ( Skip
+              ( startCol - 1 )
+              ( Highlight
+                  ( endCol - startCol )
+                  SkipToEndOfLine
+              )
+          )
+      )
+
+  else
+    Map.fromList
+      ( concat
+          [ pure ( startLine, Highlight 0 ( Skip ( startCol - 1 ) HighlightToEndOfLine ) )
+          , [ ( l, HighlightToEndOfLine ) | l <- [ startLine + 1 .. endLine - 1 ] ]
+          , pure ( endLine, Highlight ( endCol - 1 ) SkipToEndOfLine )
+          ]
+      )
+
+  where
+
+    startCol =
+      srcLocCol start
+
+    startLine =
+      srcLocLine start
+
+    endCol =
+      srcLocCol end
+
+    endLine =
+      srcLocLine end
+
+    start =
+      realSrcSpanStart span
+
+    end =
+      realSrcSpanEnd span
+
+
+zipHighlighting
+  :: [ ( Int, Highlight ) ]
+  -> [ ( Int, String ) ]
+  -> String
+zipHighlighting =
+  highlightWithContext 3 1
+
+  where
+
+    highlightWithContext
+      :: Int -> Int -> [ ( Int, Highlight ) ] -> [ ( Int, String ) ] -> String
+    highlightWithContext _ currLine ( ( i, highlight ) : hs ) [] =
+      ""
+    highlightWithContext _ currLine [] _ =
+      ""
+    highlightWithContext n currLine ( ( i, highlight ) : hs ) ( ( linum, l ) : ls ) =
+      case compare currLine i of
+        LT | i - currLine > n ->
+          highlightWithContext
+            n
+            ( currLine + 1 )
+            ( ( i, highlight ) : hs )
+            ls
+
+        LT ->
+             "    "
+          ++ show linum
+          ++ " │ "
+          ++  l
+          ++ "\n"
+          ++ highlightWithContext
+               ( n - 1 )
+               ( currLine + 1 )
+               ( ( i, highlight ) : hs )
+               ls
+
+        EQ ->
+             "    "
+          ++ show linum
+          ++ " │ "
+          ++ highlightString highlight l
+          ++ "\n"
+          ++ trailingContext 3 ( currLine + 1 ) hs ls
+
+        GT ->
+          error "Forgot to highlight something!"
+
+    trailingContext
+      :: Int -> Int -> [ ( Int, Highlight ) ] -> [ ( Int, String ) ] -> String
+    trailingContext n currLine _ [] =
+      ""
+    trailingContext n currLine [] ( ( linum, l ) : ls ) =
+      if n > 0 then
+           "    "
+        ++ show linum
+        ++ " │ "
+        ++ l
+        ++ "\n"
+        ++ trailingContext ( n - 1 ) ( currLine + 1 ) [] ls
+      else
+        ""
+    trailingContext n currLine ( ( i, highlight ) : hs ) ( ( linum, l ) : ls ) =
+      case compare currLine i of
+        LT | n > 0 ->
+             "    "
+          ++ show linum
+          ++ " │ "
+          ++ l
+          ++ "\n"
+          ++ trailingContext ( n - 1 ) ( currLine + 1 ) ( ( i, highlight ) : hs ) ls
+
+        LT ->
+             "\n"
+          ++ highlightWithContext 3 ( currLine + 1 ) ( ( i, highlight ) : hs ) ls
+
+        EQ ->
+             "    "
+          ++ show linum
+          ++ " │ "
+          ++ highlightString highlight l
+          ++ "\n"
+          ++ trailingContext 3 ( currLine + 1 ) hs ls
+
+        GT ->
+          error "Forgot to highlight!"
+
+
+highlightString :: Highlight -> String -> String
+highlightString HighlightToEndOfLine s =
+  hlCode
+    <> s
+    <> setSGRCode []
+highlightString ( Highlight n skip ) s =
+  hlCode
+    <> take n s
+    <> setSGRCode []
+    <> skipThenHighlight skip ( drop n s )
+
+
+skipThenHighlight :: Skip -> String -> String
+skipThenHighlight SkipToEndOfLine s =
+  s
+skipThenHighlight ( Skip n h ) s =
+  take n s <> highlightString h ( drop n s )
+
+
+hlCode =
+  setSGRCode [ SetColor Background Vivid Red, SetColor Foreground Vivid White ]
