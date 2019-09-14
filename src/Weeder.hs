@@ -5,7 +5,7 @@
 {-# language OverloadedStrings #-}
 {-# language PackageImports #-}
 
-module Main where
+module Main ( main ) where
 
 import "algebraic-graphs" Algebra.Graph ( Graph, edge, empty, overlay, overlays, vertex, vertexList )
 import "algebraic-graphs" Algebra.Graph.ToGraph ( dfs )
@@ -23,25 +23,36 @@ import "base" Control.Applicative ( Alternative )
 import "base" Control.Monad ( guard, msum )
 import "base" Control.Monad.IO.Class ( liftIO )
 import "base" Data.Foldable ( for_, traverse_, toList )
-import "base" Data.Maybe ( maybeToList )
 import "base" Data.List ( intercalate )
+import "base" Data.Maybe ( maybeToList )
+import "base" Data.Monoid ( First( First ) )
+import "base" Debug.Trace
 import "base" System.Environment ( getArgs )
+
+import "directory" System.Directory ( doesPathExist, withCurrentDirectory, canonicalizePath, listDirectory, doesFileExist, doesDirectoryExist )
+
+import "filepath" System.FilePath ( isExtensionOf )
+
+import "bytestring" Data.ByteString.Char8 ( unpack )
 
 import "containers" Data.Map.Strict ( Map )
 import qualified "containers" Data.Map.Strict as Map
 import "containers" Data.Set ( Set )
 import qualified "containers" Data.Set as Set
+import "containers" Data.Sequence ( Seq )
 
+import "ghc" Avail ( AvailInfo( Avail, AvailTC ) )
 import "ghc" DynFlags ( DynFlags, defaultDynFlags )
 import "ghc" HieBin ( HieFileResult( HieFileResult, hie_file_result ) )
 import "ghc" HieBin ( readHieFile )
 import "ghc" HieDebug ( ppHie )
 import "ghc" HieTypes
   ( BindType( RegularBind )
+  , DeclType( DataDec, ConDec )
   , ContextInfo( Decl, ValBind, PatternBind, Use, TyDecl )
   , HieAST( Node, nodeInfo, nodeChildren, nodeSpan )
   , HieASTs( HieASTs )
-  , HieFile( HieFile, hie_asts )
+  , HieFile( HieFile, hie_asts, hie_hs_src, hie_exports )
   , IdentifierDetails( IdentifierDetails, identInfo )
   , NodeInfo( NodeInfo, nodeIdentifiers, nodeAnnotations )
   , Scope( ModuleScope )
@@ -76,16 +87,21 @@ import "ghc" UniqSupply ( mkSplitUniqSupply )
 
 import "ghc-paths" GHC.Paths ( libdir )
 
+import "mtl" Control.Monad.Reader.Class ( MonadReader, ask )
 import "mtl" Control.Monad.State.Class ( MonadState, modify' )
 
+import "transformers" Control.Monad.Trans.Reader ( runReaderT )
 import "transformers" Control.Monad.Trans.Maybe ( MaybeT, runMaybeT )
 import "transformers" Control.Monad.Trans.State.Strict ( execStateT )
 
 
 main :: IO ()
 main = do
-  hieFilePaths <-
+  searchDirectories <-
     getArgs
+
+  hieFilePaths <-
+    foldMap getHieFilesIn searchDirectories
 
   nameCache <- do
     uniqSupply <-
@@ -102,33 +118,34 @@ main = do
   analysis <-
     flip execStateT emptyAnalysis do
       for_ hieFilePaths \hieFilePath -> do
-        ( HieFileResult{ hie_file_result = HieFile{ hie_asts = HieASTs hieASTs } }, _ ) <-
+        liftIO ( putStrLn ( "Processing " ++ hieFilePath ) )
+
+        ( HieFileResult{ hie_file_result = HieFile{ hie_asts = HieASTs hieASTs, hie_hs_src, hie_exports } }, _ ) <-
           liftIO ( readHieFile nameCache hieFilePath )
 
-        traverse_ analyse hieASTs
+        runReaderT ( traverse_ analyse hieASTs ) ( unpack hie_hs_src )
+
+        for_ hie_exports analyseExport
+
+        -- liftIO ( putStrLn ( foldMap ( showSDoc dynFlags . ppHie ) hieASTs ) )
 
   let
+    root =
+      Declaration
+        { declModule =
+            Module
+              ( DefiniteUnitId ( DefUnitId ( stringToInstalledUnitId "main" ) ) )
+              ( mkModuleName "Main" )
+        , declOccName =
+            mkOccName varName "main"
+        }
+
     reachableSet =
-      reachable
-        analysis
-        ( Set.singleton
-            ( Declaration
-              { declModule =
-                  Module
-                    ( DefiniteUnitId ( DefUnitId ( stringToInstalledUnitId "main" ) ) )
-                    ( mkModuleName "Main" )
-              , declOccName =
-                  mkOccName varName "main"
-              }
-            )
-        )
-  -- print
-  --   ( Set.map
-  --       ( \d -> ( declarationStableName d, Map.lookup d ( declarationSites analysis ) ) )
-  --       ( allDeclarations analysis Set.\\ reachableSet )
-  --   )
+      reachable analysis ( Set.singleton root )
 
-  let
+    dead =
+      allDeclarations analysis Set.\\ reachableSet
+
     highlightingMap =
       Map.unionsWith
         overlayHighlight
@@ -138,21 +155,11 @@ main = do
                   ( foldMap \m -> [ highlight m ] )
                   ( Map.lookup d ( declarationSites analysis ) )
             )
-            ( allDeclarations analysis Set.\\ reachableSet )
+            dead
         )
 
-  source <-
-    lines <$> readFile "src/Weeder.hs"
 
-  putStrLn ( zipHighlighting ( Map.toList highlightingMap ) ( zip [1..] source ) )
-
-  -- for_ ( allDeclarations analysis Set.\\ reachableSet ) \d ->
-  --   print ( Map.lookup d ( declarationSites analysis ) )
-
-  -- for_
-  --   ( allDeclarations analysis Set.\\ reachableSet )
-  --   \Declaration{ declModule, declOccName } ->
-  --     putStrLn ( moduleNameString ( moduleName declModule ) <> "." <> occNameString declOccName )
+  -- for_ ( implicitRoots analysis ) print
 
   writeFile
     "graph.dot"
@@ -162,6 +169,19 @@ main = do
         ( dependencyGraph analysis ) -- >>= \d -> if not ( d `Set.member` reachableSet ) then return d else empty )
     )
 
+  for_ dead \d ->
+    for_ ( Map.lookup d ( declarationSource analysis ) ) \src ->
+      putStrLn $
+        zipHighlighting
+          ( Map.toList ( Map.unionsWith
+              overlayHighlight
+              ( foldMap
+                  ( foldMap \m -> [ highlight m ] )
+                  ( Map.lookup d ( declarationSites analysis ) )
+              )
+          ) )
+          ( zip [ 1..] ( lines src ) )
+
 
 data Declaration =
   Declaration
@@ -170,6 +190,11 @@ data Declaration =
     }
   deriving
     ( Eq, Ord )
+
+
+instance Show Declaration where
+  show =
+    declarationStableName
 
 
 declarationStableName :: Declaration -> String
@@ -213,12 +238,14 @@ data Analysis =
       -- ^ The Set of all Declarations that are always reachable. This is used
       -- to capture knowledge not yet modelled in weeder, such as instance
       -- declarations depending on top-level functions.
+    , declarationSource :: Map Declaration String
+      -- ^ Map Declarations back to their source code.
     }
 
 
 emptyAnalysis :: Analysis
 emptyAnalysis =
-  Analysis empty mempty mempty
+  Analysis empty mempty mempty mempty
 
 
 reachable :: Analysis -> Set Declaration -> Set Declaration
@@ -232,9 +259,19 @@ allDeclarations Analysis{ dependencyGraph } =
   Set.fromList ( vertexList dependencyGraph )
 
 
-analyse :: MonadState Analysis m => HieAST a -> m ()
+analyse :: ( MonadState Analysis m, MonadReader String m ) => HieAST a -> m ()
 analyse =
   traverse_ topLevelAnalysis . nodeChildren
+
+
+analyseExport :: MonadState Analysis m => AvailInfo -> m ()
+analyseExport = \case
+  Avail name ->
+    for_ ( nameToDeclaration name ) addImplicitRoot
+
+  AvailTC name pieces _ ->
+       for_ ( nameToDeclaration name ) addImplicitRoot
+    >> for_ pieces ( traverse_ addImplicitRoot . nameToDeclaration )
 
 
 -- | @addDependency x y@ adds the information that @x@ depends on @y@.
@@ -249,8 +286,11 @@ addImplicitRoot x =
   modify' \a -> a { implicitRoots = implicitRoots a <> Set.singleton x }
 
 
-addDeclaration :: MonadState Analysis m => Declaration -> RealSrcSpan -> m ()
-addDeclaration decl span =
+addDeclaration :: ( MonadReader String m, MonadState Analysis m ) => Declaration -> RealSrcSpan -> m ()
+addDeclaration decl span = do
+  source <-
+    ask
+
   modify' \a ->
     a
       { declarationSites =
@@ -258,10 +298,14 @@ addDeclaration decl span =
             Set.union
             ( declarationSites a )
             ( Map.singleton decl ( Set.singleton span ) )
+      , declarationSource =
+          declarationSource a <> Map.singleton decl source
+      , dependencyGraph =
+          overlay ( dependencyGraph a ) ( vertex decl )
       }
 
 
-topLevelAnalysis :: MonadState Analysis m => HieAST a -> m ()
+topLevelAnalysis :: ( MonadState Analysis m, MonadReader String m ) => HieAST a -> m ()
 topLevelAnalysis n@Node{ nodeInfo = NodeInfo{ nodeAnnotations }, nodeChildren } = do
   analysed <-
     runMaybeT
@@ -277,6 +321,10 @@ topLevelAnalysis n@Node{ nodeInfo = NodeInfo{ nodeAnnotations }, nodeChildren } 
             >> analyseFunBind n
           ,    guard ( ( "ClsInstD", "InstDecl" ) `Set.member` nodeAnnotations )
             >> analyseInstDecl n
+          ,    guard ( ( "DataDecl", "TyClDecl" ) `Set.member` nodeAnnotations )
+            >> analyseDataDecl n
+          ,    guard ( ( "HsRule", "RuleDecl" ) `Set.member` nodeAnnotations )
+            >> for_ ( uses n ) addImplicitRoot
           ]
       )
 
@@ -292,7 +340,7 @@ topLevelAnalysis n@Node{ nodeInfo = NodeInfo{ nodeAnnotations }, nodeChildren } 
 
 
 -- | Try and analyse a HieAST node as if it's a FunBind
-analyseFunBind :: ( Alternative m, MonadState Analysis m ) => HieAST a -> m ()
+analyseFunBind :: ( Alternative m, MonadState Analysis m, MonadReader String m ) => HieAST a -> m ()
 analyseFunBind n@Node{ nodeChildren, nodeSpan }= do
   guard ( not ( null nodeChildren ) )
 
@@ -309,6 +357,44 @@ analyseFunBind n@Node{ nodeChildren, nodeSpan }= do
 analyseInstDecl :: MonadState Analysis m => HieAST a -> m ()
 analyseInstDecl n =
   traverse_ addImplicitRoot ( uses n )
+
+
+analyseDataDecl :: ( MonadState Analysis m, MonadReader String m ) => HieAST a -> m ()
+analyseDataDecl n@Node { nodeSpan } =
+  for_
+    ( foldMap
+        ( First . Just )
+        ( findIdentifiers ( any isDataDec ) n )
+    )
+    \dataTypeName -> do
+      addDeclaration dataTypeName nodeSpan
+
+      for_ ( constructors n ) \constructor ->
+        for_ ( foldMap ( First . Just ) ( findIdentifiers ( any isConDec ) constructor ) ) \conDec -> do
+          addDependency conDec dataTypeName
+
+          for_ ( uses constructor ) ( addDependency conDec )
+
+  where
+
+    isDataDec ( Decl DataDec _ ) =
+      True
+    isDataDec _ =
+      False
+
+    isConDec ( Decl ConDec _ ) =
+      True
+    isConDec _ =
+      False
+
+
+constructors :: HieAST a -> Seq ( HieAST a )
+constructors n@Node { nodeChildren, nodeInfo = NodeInfo{ nodeAnnotations } } =
+  if any ( \( _, t ) -> t == "ConDecl" ) nodeAnnotations then
+    pure n
+
+  else
+    foldMap constructors nodeChildren
 
 
 --   else if
@@ -414,23 +500,33 @@ findDeclarations Node{ nodeInfo = NodeInfo{ nodeIdentifiers }, nodeChildren, nod
 --     foldMap findRoots nodeChildren
 
 
-uses :: HieAST a -> Set Declaration
-uses Node{ nodeInfo = NodeInfo{ nodeIdentifiers }, nodeChildren } =
+findIdentifiers
+  :: ( Set ContextInfo -> Bool )
+  -> HieAST a
+  -> Seq Declaration
+findIdentifiers f Node{ nodeInfo = NodeInfo{ nodeIdentifiers }, nodeChildren } =
      foldMap
        ( \case
            ( Left _, _ ) ->
              mempty
 
            ( Right name, IdentifierDetails{ identInfo } ) ->
-             if Use `Set.member` identInfo then
-               foldMap Set.singleton ( nameToDeclaration name )
+             if f identInfo then
+               foldMap pure ( nameToDeclaration name )
 
              else
                mempty
            )
 
        ( Map.toList nodeIdentifiers )
-  <> foldMap uses nodeChildren
+  <> foldMap ( findIdentifiers f ) nodeChildren
+
+
+uses :: HieAST a -> Set Declaration
+uses =
+    foldMap Set.singleton
+  . findIdentifiers \identInfo -> Use `Set.member` identInfo
+
 
 
 nameToDeclaration :: Name -> Maybe Declaration
@@ -441,8 +537,8 @@ nameToDeclaration name = do
   return Declaration { declModule = m, declOccName = nameOccName name }
 
 
-class Foo a where
-  foo :: a -> Bool
+-- class Foo a where
+--   foo :: a -> Bool
 
 -- instance Foo Bool where
 --   foo _ = unused
@@ -718,3 +814,51 @@ skipThenHighlight ( Skip n h ) s =
 
 hlCode =
   setSGRCode [ SetColor Background Vivid Red, SetColor Foreground Vivid White ]
+
+
+unused :: Bool
+unused = False
+
+
+
+
+
+
+
+
+foo :: Int
+foo = 42
+
+-- | Recursively search for .hie files in given directory
+getHieFilesIn :: FilePath -> IO [FilePath]
+getHieFilesIn path = do
+  exists <-
+    doesPathExist path
+
+  if exists
+    then do
+      isFile <-
+        doesFileExist path
+
+      isDir <-
+        doesDirectoryExist path
+
+      if isFile && "hie" `isExtensionOf` path
+        then do
+          path' <-
+            canonicalizePath path
+
+          return [ path' ]
+
+        else
+          if isDir then do
+            cnts <-
+              listDirectory path
+
+            withCurrentDirectory path ( foldMap getHieFilesIn cnts )
+
+          else
+            return []
+
+    else
+      return []
