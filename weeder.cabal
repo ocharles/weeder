@@ -20,6 +20,27 @@ library
   exposed-modules: Weeder
 
 
+executable weeder
+  build-depends: algebraic-graphs
+               , ansi-terminal
+               , base
+               , bytestring
+               , containers
+               , directory
+               , filepath
+               , ghc
+               , ghc-paths
+               , mtl
+               , optparse-applicative
+               , transformers
+               , weeder
+               , tasty
+               , tasty-hunit
+  main-is: Main.hs
+  hs-source-dirs: exe-weeder
+  ghc-options: -fwrite-ide-info
+
+
 test-suite tests
   build-depends: algebraic-graphs
                , ansi-terminal
