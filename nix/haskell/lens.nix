@@ -11,8 +11,8 @@
 }:
 mkDerivation {
   pname = "lens";
-  version = "4.18";
-  sha256 = "46f3e7806cb4f07eda196427340b5e055a0e0975941cd40c6badd3baccc88d72";
+  version = "4.18.1";
+  sha256 = "3107a3d5165a9762269d7c9e39205d2c4c2aaebc1900ff44a0066c31a492bdd2";
   setupHaskellDepends = [ base Cabal cabal-doctest filepath ];
   libraryHaskellDepends = [
     array base base-orphans bifunctors bytestring call-stack comonad

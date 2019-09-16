@@ -20,20 +20,8 @@ let
                     ( cleanSource ./. )
                     {};
 
-                lsp-test =
-                  haskell.lib.disableLibraryProfiling super.lsp-test;
-
-                haskell-lsp =
-                  haskell.lib.disableLibraryProfiling super.haskell-lsp;
-
-                haskell-lsp-types =
-                  haskell.lib.disableLibraryProfiling super.haskell-lsp-types;
-
                 ghcide =
-                  haskell.lib.dontCheck ( haskell.lib.disableLibraryProfiling super.ghcide );
-
-                lens =
-                  haskell.lib.disableLibraryProfiling super.lens;
+                  haskell.lib.dontCheck super.ghcide;
               }
             );
       };
