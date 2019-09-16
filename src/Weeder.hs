@@ -462,7 +462,7 @@ topLevelAnalysis n@Node{ nodeChildren } = do
           --   analyseStandaloneDeriving n
           -- ,
             analyseBinding n
-          -- , analyseRewriteRule n
+          , analyseRewriteRule n
           , analyseInstanceDeclaration n
           , analyseClassDeclaration n
           -- , analyseDataDeclaration n
@@ -508,7 +508,7 @@ analyseBinding n@Node{ nodeChildren, nodeSpan, nodeInfo = NodeInfo{ nodeAnnotati
       addDependency d use
 
 
-analyseRewriteRule :: ( Alternative m, MonadState Analysis m, MonadReader String m ) => HieAST a -> m ()
+analyseRewriteRule :: ( Alternative m, MonadState Analysis m ) => HieAST a -> m ()
 analyseRewriteRule n@Node{ nodeChildren, nodeSpan, nodeInfo = NodeInfo{ nodeAnnotations } } = do
   guard ( ( "HsRule", "RuleDecl" ) `Set.member` nodeAnnotations )
 
@@ -526,9 +526,7 @@ analyseClassDeclaration :: ( Alternative m, MonadState Analysis m ) => HieAST a 
 analyseClassDeclaration n@Node{ nodeChildren, nodeSpan, nodeInfo = NodeInfo{ nodeAnnotations } } = do
   guard ( ( "ClassDecl", "TyClDecl" ) `Set.member` nodeAnnotations )
 
-  for_ ( findIdentifiers isClassDeclaration n ) \d -> do
-    addImplicitRoot d
-
+  for_ ( findIdentifiers isClassDeclaration n ) \d ->
     for_ ( findIdentifiers ( const True ) n ) ( addDependency d )
 
   where
