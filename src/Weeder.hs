@@ -14,6 +14,7 @@ module Weeder
   , declarationStableName
   , dependencyGraph
   , emptyAnalysis
+  , implicitRoots
   , moduleSource
   , reachable
   )
@@ -61,8 +62,8 @@ import "ghc" HieBin ( readHieFile )
 import "ghc" HieDebug ( ppHie )
 import "ghc" HieTypes
   ( BindType( RegularBind )
-  , DeclType( DataDec, ConDec )
-  , ContextInfo( Decl, ValBind, PatternBind, Use, TyDecl )
+  , DeclType( DataDec, ClassDec, ConDec )
+  , ContextInfo( Decl, ValBind, PatternBind, Use, TyDecl, ClassTyDecl )
   , HieAST( Node, nodeInfo, nodeChildren, nodeSpan )
   , HieASTs( HieASTs )
   , HieFile( HieFile, hie_asts, hie_hs_src, hie_exports, hie_module )
@@ -463,7 +464,7 @@ topLevelAnalysis n@Node{ nodeChildren } = do
             analyseBinding n
           -- , analyseRewriteRule n
           , analyseInstanceDeclaration n
-          -- , analyseClassDeclaration n
+          , analyseClassDeclaration n
           -- , analyseDataDeclaration n
           ]
       )
@@ -500,10 +501,7 @@ analyseBinding n@Node{ nodeChildren, nodeSpan, nodeInfo = NodeInfo{ nodeAnnotati
        ]
    )
 
-  declarations <-
-    findDeclarations n
-
-  for_ declarations \d -> do
+  for_ ( findDeclarations n ) \d -> do
     define d nodeSpan
 
     for_ ( uses n ) \use ->
@@ -528,7 +526,20 @@ analyseClassDeclaration :: ( Alternative m, MonadState Analysis m ) => HieAST a 
 analyseClassDeclaration n@Node{ nodeChildren, nodeSpan, nodeInfo = NodeInfo{ nodeAnnotations } } = do
   guard ( ( "ClassDecl", "TyClDecl" ) `Set.member` nodeAnnotations )
 
-  traverse_ addImplicitRoot ( uses n )
+  for_ ( findIdentifiers isClassDeclaration n ) \d -> do
+    addImplicitRoot d
+
+    for_ ( findIdentifiers ( const True ) n ) ( addDependency d )
+
+  where
+
+    isClassDeclaration =
+      not . Set.null . Set.filter \case
+        Decl ClassDec _ ->
+          True
+
+        _ ->
+          False
 
 
 analyseDataDeclaration :: ( Alternative m, MonadState Analysis m, MonadReader String m ) => HieAST a -> m ()
@@ -571,49 +582,30 @@ constructors n@Node { nodeChildren, nodeInfo = NodeInfo{ nodeAnnotations } } =
     foldMap constructors nodeChildren
 
 
-findDeclarations :: MonadState Analysis m => HieAST a -> m ( Set Declaration )
-findDeclarations Node{ nodeInfo = NodeInfo{ nodeIdentifiers }, nodeChildren, nodeSpan } = do
-  let
-    here =
-      foldMap
-        ( \case
-            ( Left _, _ ) ->
-              mempty
+findDeclarations :: HieAST a -> Seq Declaration
+findDeclarations =
+  findIdentifiers
+    (   not
+      . Set.null
+      . Set.filter \case
+          ValBind RegularBind ModuleScope _ ->
+            True
 
-            ( Right name, IdentifierDetails{ identInfo } ) ->
-              if
-                Set.null
-                  ( Set.filter
-                      ( \case
-                          ValBind RegularBind ModuleScope _ ->
-                            True
+          PatternBind ModuleScope _ _ ->
+            True
 
-                          PatternBind ModuleScope _ _ ->
-                            True
+          Decl _ _ ->
+            True
 
-                          Decl _ _ ->
-                            True
+          TyDecl ->
+            True
 
-                          TyDecl ->
-                            True
+          ClassTyDecl{} ->
+            True
 
-                          _ ->
-                            False
-                      )
-                      identInfo
-                  )
-              then
-                mempty
-
-              else
-                foldMap
-                  ( \d -> Map.singleton d ( Set.singleton nodeSpan ) )
-                  ( nameToDeclaration name )
-        )
-        ( Map.toList nodeIdentifiers )
-
-  Set.union ( Set.fromList ( Map.keys here ) ) . Set.unions
-    <$> traverse findDeclarations nodeChildren
+          _ ->
+            False
+    )
 
 
 findIdentifiers
