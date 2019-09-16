@@ -3,8 +3,40 @@ name: weeder
 build-type: Simple
 version: 1.0
 
-executable weeder
-  build-depends: base, algebraic-graphs, ghc, containers, ghc-paths, mtl, transformers, ansi-terminal, bytestring, directory, filepath
+library
+  build-depends: algebraic-graphs
+               , ansi-terminal
+               , base
+               , bytestring
+               , containers
+               , directory
+               , filepath
+               , ghc
+               , ghc-paths
+               , mtl
+               , optparse-applicative
+               , transformers
   hs-source-dirs: src
-  main-is: Weeder.hs
+  exposed-modules: Weeder
+
+
+test-suite tests
+  build-depends: algebraic-graphs
+               , ansi-terminal
+               , base
+               , bytestring
+               , containers
+               , directory
+               , filepath
+               , ghc
+               , ghc-paths
+               , mtl
+               , optparse-applicative
+               , transformers
+               , weeder
+               , tasty
+               , tasty-hunit
+  main-is: Main.hs
+  hs-source-dirs: tests
   ghc-options: -fwrite-ide-info
+  type: exitcode-stdio-1.0
