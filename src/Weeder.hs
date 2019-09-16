@@ -460,9 +460,9 @@ topLevelAnalysis n@Node{ nodeChildren } = do
           [
           --   analyseStandaloneDeriving n
           -- ,
-          analyseBinding n
+            analyseBinding n
           -- , analyseRewriteRule n
-          -- , analyseInstanceDeclaration n
+          , analyseInstanceDeclaration n
           -- , analyseClassDeclaration n
           -- , analyseDataDeclaration n
           ]

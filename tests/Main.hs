@@ -108,27 +108,32 @@ fileToTestCase sourceFilePath =
                   analysis =
                     execState ( analyseHieFile hieFile ) emptyAnalysis
 
+                  testModule =
+                    Module
+                      ( DefiniteUnitId ( DefUnitId ( stringToInstalledUnitId "main" ) ) )
+                      testModuleName
+
                   reachableSet =
                     reachable
                       analysis
                       ( Set.singleton
                           Declaration
                             { declModule =
-                                Module
-                                  ( DefiniteUnitId ( DefUnitId ( stringToInstalledUnitId "main" ) ) )
-                                  testModuleName
+                                testModule
                             , declOccName =
                                 mkOccName varName "root"
                             }
                       )
 
                   dead =
-                    allDeclarations analysis Set.\\ reachableSet
+                    Set.filter
+                      ( \d -> declModule d == testModule )
+                      ( allDeclarations analysis Set.\\ reachableSet )
 
                 unless
                   ( Set.null dead )
                   ( for_ dead \d ->
-                      liftIO ( putStrLn ( declarationStableName d <> " is dead, but should be alive" ) )
+                      liftIO ( fail ( declarationStableName d <> " is dead, but should be alive" ) )
                   )
 
 -- | Recursively search for .hie files in given directory
