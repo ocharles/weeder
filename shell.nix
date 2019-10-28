@@ -1,4 +1,4 @@
-with ( import <unstable> {} );
+with ( import <nixpkgs> {} );
 
 let
   inherit ( lib ) cleanSource composeExtensions;
