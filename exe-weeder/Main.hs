@@ -45,15 +45,15 @@ import "filepath" System.FilePath ( isExtensionOf )
 
 import "ghc" Avail ( AvailInfo( Avail, AvailTC ) )
 import "ghc" DynFlags ( DynFlags, defaultDynFlags )
+import "ghc" FastString ( unpackFS )
 import "ghc" HieBin ( HieFileResult( HieFileResult, hie_file_result ) )
 import "ghc" HieBin ( readHieFile )
-import "ghc" HieDebug ( ppHie )
 import "ghc" HieTypes
   ( BindType( RegularBind )
   , DeclType( DataDec, ConDec )
   , ContextInfo( Decl, ValBind, PatternBind, Use, TyDecl )
   , HieAST( Node, nodeInfo, nodeChildren, nodeSpan )
-  , HieASTs( HieASTs )
+  , HieASTs( HieASTs, getAsts )
   , HieFile( HieFile, hie_asts, hie_hs_src, hie_exports, hie_module )
   , IdentifierDetails( IdentifierDetails, identInfo )
   , NodeInfo( NodeInfo, nodeIdentifiers, nodeAnnotations )
@@ -64,10 +64,12 @@ import "ghc" Module
   , Module( Module )
   , UnitId( DefiniteUnitId )
   , mkModuleName
-  , moduleNameString
   , moduleName
+  , moduleNameString
   , moduleStableString
+  , moduleUnitId
   , stringToInstalledUnitId
+  , unitIdFS
   )
 import "ghc" Name ( Name, nameOccName, nameModule_maybe )
 import "ghc" NameCache ( initNameCache )
@@ -106,6 +108,7 @@ import "optparse-applicative" Options.Applicative
   , option
   , showDefault
   , strArgument
+  , strOption
   , switch
   , value
   )
@@ -122,6 +125,7 @@ data CommandLineArguments =
     { hiePaths :: [ FilePath ]
     , keepExports :: Bool
     , roots :: Set Declaration
+    , units :: Set String
     }
 
 
@@ -166,18 +170,26 @@ commandLineArgumentsParser = do
           )
       )
 
+  units <-
+    many
+      ( strOption
+          (  long "report-unit"
+          <> help "Report unused declarations in this unit. If ommitted, all units will be reported. Can be supplied multiple times."
+          )
+      )
 
   return
     CommandLineArguments
       { hiePaths
       , keepExports
       , roots = Set.fromList roots
+      , units = Set.fromList units
       }
 
 
 main :: IO ()
 main = do
-  CommandLineArguments{ hiePaths, roots } <-
+  CommandLineArguments{ hiePaths, roots, units, keepExports } <-
     execParser
       ( info
           ( commandLineArgumentsParser <**> helper )
@@ -209,17 +221,28 @@ main = do
         ( HieFileResult{ hie_file_result }, _ ) <-
           liftIO ( readHieFile nameCache hieFilePath )
 
-        analyseHieFile hie_file_result
+        analyseHieFile keepExports hie_file_result
 
+        -- liftIO ( print ( Map.keys ( getAsts ( hie_asts hie_file_result ))))
 
-        -- liftIO ( putStrLn ( foldMap ( showSDoc dynFlags . ppHie ) hieASTs ) )
+        -- liftIO ( putStrLn ( foldMap ( showSDoc dynFlags . ppHie ) ( getAsts ( hie_asts hie_file_result ) ) ) )
 
   let
     reachableSet =
       reachable analysis roots
 
     dead =
-      allDeclarations analysis Set.\\ reachableSet
+      Set.filter
+        ( \d ->
+            if Set.null units then
+              True
+
+            else
+              Set.member
+                ( unpackFS ( unitIdFS ( moduleUnitId ( declModule d ) ) ) )
+                units
+        )
+        ( allDeclarations analysis Set.\\ reachableSet )
 
     highlightingMap =
       Map.unionsWith

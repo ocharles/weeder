@@ -32,6 +32,8 @@ import "ghc" GHC
   , typecheckModule
   )
 import "ghc" HieAst ( mkHieFile )
+import "ghc" HieTypes ( hie_asts, getAsts )
+import "ghc" HieDebug ( ppHie )
 import "ghc" HscTypes ( runHsc )
 import "ghc" Module
   ( DefUnitId( DefUnitId )
@@ -44,6 +46,7 @@ import "ghc" Module
   , stringToInstalledUnitId
   )
 import "ghc" OccName ( mkOccName, varName )
+import "ghc" Outputable ( showSDoc )
 
 import "ghc-paths" GHC.Paths ( libdir )
 
@@ -56,9 +59,10 @@ import "transformers" Control.Monad.Trans.State.Strict ( execState )
 import "weeder" Weeder
   ( allDeclarations
   , Declaration( Declaration, declModule, declOccName )
-  , declarationStableName
   , analyseHieFile
+  , declarationStableName
   , emptyAnalysis
+  , implicitRoots
   , reachable
   )
 
@@ -76,7 +80,10 @@ fileToTestCase :: FilePath -> TestTree
 fileToTestCase sourceFilePath =
     testCase ( takeBaseName sourceFilePath )
   $ runGhc ( Just libdir ) do
-      getSessionDynFlags >>= setSessionDynFlags
+      dynFlags <-
+        getSessionDynFlags
+
+      setSessionDynFlags dynFlags
 
       addTarget
         Target
@@ -106,7 +113,7 @@ fileToTestCase sourceFilePath =
 
                 let
                   analysis =
-                    execState ( analyseHieFile hieFile ) emptyAnalysis
+                    execState ( analyseHieFile False hieFile ) emptyAnalysis
 
                   testModule =
                     Module

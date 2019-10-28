@@ -33,7 +33,7 @@ import "ansi-terminal" System.Console.ANSI
   )
 
 import "base" Control.Applicative ( (<**>), Alternative, many, some )
-import "base" Control.Monad ( guard, mfilter, msum, unless )
+import "base" Control.Monad ( guard, mfilter, msum, unless, when )
 import "base" Control.Monad.IO.Class ( liftIO )
 import "base" Data.Foldable ( for_, traverse_, toList )
 import "base" Data.List ( intercalate )
@@ -57,9 +57,10 @@ import "filepath" System.FilePath ( isExtensionOf )
 
 import "ghc" Avail ( AvailInfo( Avail, AvailTC ) )
 import "ghc" DynFlags ( DynFlags, defaultDynFlags )
+import "ghc" FieldLabel ( FieldLbl( FieldLabel, flSelector ) )
 import "ghc" HieBin ( HieFileResult( HieFileResult, hie_file_result ) )
 import "ghc" HieBin ( readHieFile )
-import "ghc" HieDebug ( ppHie )
+-- import "ghc" HieDebug ( ppHie )
 import "ghc" HieTypes
   ( BindType( RegularBind )
   , DeclType( DataDec, ClassDec, ConDec )
@@ -76,10 +77,12 @@ import "ghc" Module
   , Module( Module )
   , UnitId( DefiniteUnitId )
   , mkModuleName
-  , moduleNameString
   , moduleName
+  , moduleNameString
   , moduleStableString
+  , moduleUnitId
   , stringToInstalledUnitId
+  , unitIdFS
   )
 import "ghc" Name ( Name, nameOccName, nameModule_maybe )
 import "ghc" NameCache ( initNameCache )
@@ -104,209 +107,9 @@ import "ghc-paths" GHC.Paths ( libdir )
 import "mtl" Control.Monad.Reader.Class ( MonadReader, ask )
 import "mtl" Control.Monad.State.Class ( MonadState, modify' )
 
-import "optparse-applicative" Options.Applicative
-  ( Parser
-  , execParser
-  , fullDesc
-  , header
-  , help
-  , helper
-  , info
-  , long
-  , maybeReader
-  , metavar
-  , option
-  , showDefault
-  , strArgument
-  , switch
-  , value
-  )
-
 import "transformers" Control.Monad.Trans.Maybe ( MaybeT, runMaybeT )
 import "transformers" Control.Monad.Trans.Reader ( runReaderT )
 import "transformers" Control.Monad.Trans.State.Strict ( execStateT )
-
-
-data CommandLineArguments =
-  CommandLineArguments
-    { hiePaths :: [ FilePath ]
-    , keepExports :: Bool
-    , roots :: Set Declaration
-    }
-
-
-commandLineArgumentsParser :: Parser CommandLineArguments
-commandLineArgumentsParser = do
-  hiePaths <-
-    some
-      ( strArgument
-          (  metavar "HIE"
-          <> help "A path to a .hie file, or a directory containing .hie files"
-          )
-      )
-
-  keepExports <-
-    switch
-      (  long "keep-exports"
-      <> help "Add all exported symbols to the root set"
-      )
-
-  roots <-
-    many
-      ( option
-          ( maybeReader \str -> do
-              unit : sym <-
-                Just ( words str )
-
-              sym : revMod <-
-                Just ( reverse sym )
-
-              return
-                Declaration
-                  { declModule =
-                      Module
-                        ( DefiniteUnitId ( DefUnitId ( stringToInstalledUnitId unit ) ) )
-                        ( mkModuleName ( unwords ( reverse revMod ) ) )
-                  , declOccName =
-                      mkOccName varName sym
-                  }
-          )
-          (  long "root"
-          <> help "A symbol that should be added to the root set. Symbols are of the form unit$Module.symbol"
-          )
-      )
-
-
-  return
-    CommandLineArguments
-      { hiePaths
-      , keepExports
-      , roots = Set.fromList roots
-      }
-
-
-main :: IO ()
-main = do
-  CommandLineArguments{ hiePaths, roots } <-
-    execParser
-      ( info
-          ( commandLineArgumentsParser <**> helper )
-          (  fullDesc
-          <> header "Find unused declarations in Haskell projects"
-          )
-      )
-
-  hieFilePaths <-
-    foldMap getHieFilesIn hiePaths
-
-  nameCache <- do
-    uniqSupply <-
-      mkSplitUniqSupply 'z'
-
-    return ( initNameCache uniqSupply [] )
-
-  dynFlags <- do
-    systemSettings <-
-      initSysTools libdir
-
-    return ( defaultDynFlags systemSettings ( [], [] ) )
-
-  analysis <-
-    flip execStateT emptyAnalysis do
-      for_ hieFilePaths \hieFilePath -> do
-        liftIO ( putStrLn ( "Processing " ++ hieFilePath ) )
-
-        ( HieFileResult{ hie_file_result }, _ ) <-
-          liftIO ( readHieFile nameCache hieFilePath )
-
-        analyseHieFile hie_file_result
-
-
-        -- liftIO ( putStrLn ( foldMap ( showSDoc dynFlags . ppHie ) hieASTs ) )
-
-  let
-    reachableSet =
-      reachable analysis roots
-
-    dead =
-      allDeclarations analysis Set.\\ reachableSet
-
-    highlightingMap =
-      Map.unionsWith
-        overlayHighlight
-        ( foldMap
-            ( \d ->
-                foldMap
-                  ( foldMap \m -> [ highlight m ] )
-                  ( Map.lookup d ( declarationSites analysis ) )
-            )
-            dead
-        )
-
-  writeFile
-    "graph.dot"
-    ( export
-        ( defaultStyle declarationStableName )
-        { vertexAttributes = \v -> [ "label" := occNameString ( declOccName v ) ] }
-        ( dependencyGraph analysis )
-    )
-
-  let
-    go [] _ =
-      return ()
-    go ( ( module_, moduleSource ) : modules ) dead =
-      let
-        ( deadHere, deadElsewhere ) =
-          Set.partition
-            ( \Declaration{ declModule } -> declModule == module_ )
-            dead
-
-        defined =
-          Set.filter
-            ( `Map.member` ( declarationSites analysis ) )
-            deadHere
-
-        highlightingMap =
-          Map.unionsWith
-            overlayHighlight
-            ( foldMap
-                ( \d ->
-                    foldMap
-                      ( foldMap ( \m -> [ highlight m ] ) )
-                      ( Map.lookup d ( declarationSites analysis ) )
-                )
-                defined
-            )
-
-      in do
-      unless ( Set.null deadHere ) do
-        putStrLn
-          (    "Found "
-            ++ show ( Set.size defined )
-            ++ " unused declarations in "
-            ++ moduleNameString ( moduleName module_ )
-            ++ ":"
-          )
-
-        putStrLn ""
-
-        putStrLn
-          ( unlines
-              ( foldMap
-                  ( pure . ( "  - " ++ ) . declarationStableName )
-                  deadHere
-              )
-          )
-
-        putStrLn
-          ( zipHighlighting
-              ( Map.toList highlightingMap )
-              ( zip [ 1 .. ] ( lines moduleSource ) )
-          )
-
-      go modules deadElsewhere
-
-  go ( Map.toList ( moduleSource analysis ) ) dead
 
 
 data Declaration =
@@ -385,8 +188,8 @@ allDeclarations Analysis{ dependencyGraph } =
   Set.fromList ( vertexList dependencyGraph )
 
 
-analyseHieFile :: MonadState Analysis m => HieFile -> m ()
-analyseHieFile HieFile{ hie_hs_src, hie_asts = HieASTs hieASTs, hie_exports, hie_module } = do
+analyseHieFile :: MonadState Analysis m => Bool -> HieFile -> m ()
+analyseHieFile rootExports HieFile{ hie_hs_src, hie_asts = HieASTs hieASTs, hie_exports, hie_module } = do
   modify' \a ->
     a
       { moduleSource =
@@ -396,7 +199,7 @@ analyseHieFile HieFile{ hie_hs_src, hie_asts = HieASTs hieASTs, hie_exports, hie
   for_ hieASTs \ast ->
     addAllDeclarations ast >> topLevelAnalysis ast
 
-  for_ hie_exports analyseExport
+  when rootExports ( for_ hie_exports analyseExport )
 
 
 analyseExport :: MonadState Analysis m => AvailInfo -> m ()
@@ -404,9 +207,10 @@ analyseExport = \case
   Avail name ->
     for_ ( nameToDeclaration name ) addImplicitRoot
 
-  AvailTC name pieces _ ->
+  AvailTC name pieces fields ->
        for_ ( nameToDeclaration name ) addImplicitRoot
     >> for_ pieces ( traverse_ addImplicitRoot . nameToDeclaration )
+    >> for_ fields \FieldLabel{ flSelector } -> for_ ( nameToDeclaration flSelector ) addImplicitRoot
 
 
 -- | @addDependency x y@ adds the information that @x@ depends on @y@.
@@ -461,11 +265,11 @@ topLevelAnalysis n@Node{ nodeChildren } = do
           [
           --   analyseStandaloneDeriving n
           -- ,
-            analyseBinding n
+            analyseInstanceDeclaration n
+          , analyseBinding n
           , analyseRewriteRule n
-          , analyseInstanceDeclaration n
           , analyseClassDeclaration n
-          -- , analyseDataDeclaration n
+          , analyseDataDeclaration n
           ]
       )
 
@@ -540,7 +344,7 @@ analyseClassDeclaration n@Node{ nodeChildren, nodeSpan, nodeInfo = NodeInfo{ nod
           False
 
 
-analyseDataDeclaration :: ( Alternative m, MonadState Analysis m, MonadReader String m ) => HieAST a -> m ()
+analyseDataDeclaration :: ( Alternative m, MonadState Analysis m ) => HieAST a -> m ()
 analyseDataDeclaration n@Node { nodeSpan, nodeInfo = NodeInfo{ nodeAnnotations } } = do
   guard ( ( "DataDecl", "TyClDecl" ) `Set.member` nodeAnnotations )
 
