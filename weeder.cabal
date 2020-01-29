@@ -36,6 +36,7 @@ executable weeder
                , weeder
                , tasty
                , tasty-hunit
+               , extra
   main-is: Main.hs
   hs-source-dirs: exe-weeder
   ghc-options: -fwrite-ide-info

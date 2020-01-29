@@ -41,6 +41,8 @@ import "containers" Data.Tree ( rootLabel, subForest )
 
 import "directory" System.Directory ( doesPathExist, withCurrentDirectory, canonicalizePath, listDirectory, doesFileExist, doesDirectoryExist )
 
+import "extra" Data.List.Extra ( split )
+
 import "filepath" System.FilePath ( isExtensionOf )
 
 import "ghc" Avail ( AvailInfo( Avail, AvailTC ) )
@@ -150,7 +152,7 @@ commandLineArgumentsParser = do
       ( option
           ( maybeReader \str -> do
               unit : sym <-
-                Just ( words str )
+                Just ( split (=='.') str )
 
               sym : revMod <-
                 Just ( reverse sym )
@@ -160,13 +162,13 @@ commandLineArgumentsParser = do
                   { declModule =
                       Module
                         ( DefiniteUnitId ( DefUnitId ( stringToInstalledUnitId unit ) ) )
-                        ( mkModuleName ( unwords ( reverse revMod ) ) )
+                        ( mkModuleName ( intercalate "." ( reverse revMod ) ) )
                   , declOccName =
                       mkOccName varName sym
                   }
           )
           (  long "root"
-          <> help "A symbol that should be added to the root set. Symbols are of the form unit$Module.symbol"
+          <> help "A symbol that should be added to the root set. Symbols are of the form unit.Module.Name.symbol"
           )
       )
 
