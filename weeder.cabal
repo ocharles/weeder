@@ -16,8 +16,11 @@ library
                , mtl
                , optparse-applicative
                , transformers
+               , generic-lens
+               , lens
   hs-source-dirs: src
   exposed-modules: Weeder
+  ghc-options: -Wall -fwarn-incomplete-uni-patterns
 
 
 executable weeder
@@ -38,7 +41,7 @@ executable weeder
                , tasty-hunit
   main-is: Main.hs
   hs-source-dirs: exe-weeder
-  ghc-options: -fwrite-ide-info
+  ghc-options: -Wall -fwarn-incomplete-uni-patterns
 
 
 test-suite tests
