@@ -1,8 +1,10 @@
 {-# language ApplicativeDo #-}
 {-# language BlockArguments #-}
+{-# language DeriveGeneric #-}
 {-# language FlexibleContexts #-}
 {-# language LambdaCase #-}
 {-# language NamedFieldPuns #-}
+{-# language OverloadedLabels #-}
 {-# language OverloadedStrings #-}
 {-# language PackageImports #-}
 
@@ -17,6 +19,8 @@ module Weeder
   , implicitRoots
   , moduleSource
   , reachable
+  , getHieFilesIn
+  , nameToDeclaration
   )
   where
 
@@ -40,6 +44,7 @@ import "base" Data.List ( intercalate )
 import "base" Data.Maybe ( maybeToList )
 import "base" Data.Monoid ( First( First ) )
 import "base" Debug.Trace
+import "base" GHC.Generics ( Generic )
 import "base" System.Environment ( getArgs )
 
 import "bytestring" Data.ByteString.Char8 ( unpack )
@@ -104,6 +109,10 @@ import "ghc" UniqSupply ( mkSplitUniqSupply )
 
 import "ghc-paths" GHC.Paths ( libdir )
 
+import "generic-lens" Data.Generics.Labels ()
+
+import "lens" Control.Lens ( (%~), (&), over )
+
 import "mtl" Control.Monad.Reader.Class ( MonadReader, ask )
 import "mtl" Control.Monad.State.Class ( MonadState, modify' )
 
@@ -129,24 +138,13 @@ instance Show Declaration where
 declarationStableName :: Declaration -> String
 declarationStableName Declaration { declModule, declOccName } =
   let
-    namespace =
-      if isVarOcc declOccName then
-        "var"
-
-      else if isTvOcc declOccName then
-        "tv"
-
-      else if isTcOcc declOccName then
-        "tc"
-
-      else if isDataOcc declOccName then
-        "data"
-
-      else if isDataSymOcc declOccName then
-        "dataSym"
-
-      else
-        "unknown"
+    namespace
+      | isVarOcc declOccName     = "var"
+      | isTvOcc declOccName      = "tv"
+      | isTcOcc declOccName      = "tc"
+      | isDataOcc declOccName    = "data"
+      | isDataSymOcc declOccName = "dataSym"
+      | otherwise                = "unknown"
 
     in
     intercalate "$" [ namespace, moduleStableString declModule, "$", occNameString declOccName ]
@@ -170,6 +168,8 @@ data Analysis =
     , moduleSource :: Map Module String
       -- ^ Map Modules back to their source code.
     }
+  deriving
+    ( Generic )
 
 
 emptyAnalysis :: Analysis
@@ -190,11 +190,8 @@ allDeclarations Analysis{ dependencyGraph } =
 
 analyseHieFile :: MonadState Analysis m => Bool -> HieFile -> m ()
 analyseHieFile rootExports HieFile{ hie_hs_src, hie_asts = HieASTs hieASTs, hie_exports, hie_module } = do
-  modify' \a ->
-    a
-      { moduleSource =
-          Map.insert hie_module ( unpack hie_hs_src ) ( moduleSource a )
-      }
+  modify' $
+    #moduleSource %~ Map.insert hie_module ( unpack hie_hs_src )
 
   for_ hieASTs \ast ->
     addAllDeclarations ast >> topLevelAnalysis ast
@@ -216,36 +213,29 @@ analyseExport = \case
 -- | @addDependency x y@ adds the information that @x@ depends on @y@.
 addDependency :: MonadState Analysis m => Declaration -> Declaration -> m ()
 addDependency x y =
-  modify' \a ->
-    a { dependencyGraph = overlay ( dependencyGraph a ) ( edge x y ) }
+  modify' $
+    #dependencyGraph %~ overlay ( edge x y )
 
 
 addImplicitRoot :: MonadState Analysis m => Declaration -> m ()
 addImplicitRoot x =
-  modify' \a -> a { implicitRoots = implicitRoots a <> Set.singleton x }
+  modify' $
+    #implicitRoots %~ Set.insert x
 
 
 define :: MonadState Analysis m => Declaration -> RealSrcSpan -> m ()
-define decl span = do
-  modify' \a ->
-    a
-      { declarationSites =
-          Map.unionWith
-            Set.union
-            ( declarationSites a )
-            ( Map.singleton decl ( Set.singleton span ) )
-      , dependencyGraph =
-          overlay ( dependencyGraph a ) ( vertex decl )
-      }
+define decl span =
+  when ( realSrcSpanStart span /= realSrcSpanEnd span ) $
+  modify'
+    ( over #declarationSites ( Map.insertWith Set.union decl ( Set.singleton span ) )
+    . over #dependencyGraph ( overlay ( vertex decl ) )
+    )
 
 
-addDeclaration :: ( MonadState Analysis m ) => Declaration -> m ()
+addDeclaration :: MonadState Analysis m => Declaration -> m ()
 addDeclaration decl = do
-  modify' \a ->
-    a
-      { dependencyGraph =
-          overlay ( dependencyGraph a ) ( vertex decl )
-      }
+  modify' $
+    #dependencyGraph %~ overlay ( vertex decl )
 
 
 -- | Try and add vertices for all declarations in an AST - both
@@ -364,15 +354,13 @@ analyseDataDeclaration n@Node { nodeSpan, nodeInfo = NodeInfo{ nodeAnnotations }
 
   where
 
-    isDataDec ( Decl DataDec _ ) =
-      True
-    isDataDec _ =
-      False
+    isDataDec = \case
+      Decl DataDec _ -> True
+      _              -> False
 
-    isConDec ( Decl ConDec _ ) =
-      True
-    isConDec _ =
-      False
+    isConDec = \case
+      Decl ConDec _ -> True
+      _             -> False
 
 
 constructors :: HieAST a -> Seq ( HieAST a )
@@ -390,23 +378,15 @@ findDeclarations =
     (   not
       . Set.null
       . Set.filter \case
-          ValBind RegularBind ModuleScope _ ->
-            True
+          -- Things that count as declarations
+          ValBind RegularBind ModuleScope _ -> True
+          PatternBind ModuleScope _ _       -> True
+          Decl _ _                          -> True
+          TyDecl                            -> True
+          ClassTyDecl{}                     -> True
 
-          PatternBind ModuleScope _ _ ->
-            True
-
-          Decl _ _ ->
-            True
-
-          TyDecl ->
-            True
-
-          ClassTyDecl{} ->
-            True
-
-          _ ->
-            False
+          -- Anything else is not a declaration
+          _ -> False
     )
 
 
@@ -441,281 +421,8 @@ uses =
 
 nameToDeclaration :: Name -> Maybe Declaration
 nameToDeclaration name = do
-  m <-
-    nameModule_maybe name
-
+  m <- nameModule_maybe name
   return Declaration { declModule = m, declOccName = nameOccName name }
-
-
-data Skip =
-  Skip Int Highlight | SkipToEndOfLine
-  deriving ( Show )
-
-
-data Highlight =
-  Highlight Int Skip | HighlightToEndOfLine
-  deriving ( Show )
-
-
-overlayHighlight :: Highlight -> Highlight -> Highlight
-overlayHighlight HighlightToEndOfLine _ =
-  HighlightToEndOfLine
-overlayHighlight _ HighlightToEndOfLine =
-  HighlightToEndOfLine
-overlayHighlight ( Highlight x xs ) ( Highlight y ys ) =
-  case compare x y of
-    LT ->
-      case dropSkip ( y - x ) xs of
-        Left skip ->
-          Highlight y ( overlaySkip skip ys )
-
-        Right HighlightToEndOfLine ->
-          HighlightToEndOfLine
-
-        Right highlight ->
-          overlaySkipHighlight ys highlight
-
-    EQ ->
-      Highlight x ( overlaySkip xs ys )
-
-    GT ->
-      overlayHighlight ( Highlight y ys ) ( Highlight x xs )
-
-
-
-overlaySkip :: Skip -> Skip -> Skip
-overlaySkip SkipToEndOfLine x =
-  x
-overlaySkip x SkipToEndOfLine =
-  x
-overlaySkip ( Skip x xs ) ( Skip y ys ) =
-  case compare x y of
-    LT ->
-      Skip x ( overlaySkipHighlight ( Skip ( y - x ) ys ) xs )
-
-    EQ ->
-      Skip x ( overlayHighlight xs ys )
-
-    GT ->
-      Skip y ( overlaySkipHighlight ( Skip ( x - y ) xs ) ys )
-
-
-overlaySkipHighlight :: Skip -> Highlight -> Highlight
-overlaySkipHighlight _ HighlightToEndOfLine =
-  HighlightToEndOfLine
-overlaySkipHighlight SkipToEndOfLine h =
-  h
-overlaySkipHighlight ( Skip x xs ) ( Highlight y ys ) =
-  case compare x y of
-    LT ->
-      case dropHighlight ( y - x ) xs of
-        Left skip ->
-          Highlight y ( overlaySkip skip ys )
-
-        Right highlight ->
-          case overlaySkipHighlight ys xs of
-            HighlightToEndOfLine ->
-              HighlightToEndOfLine
-
-            Highlight z zs ->
-              Highlight ( y + z ) zs
-
-    EQ ->
-      case overlaySkipHighlight ys xs of
-        HighlightToEndOfLine ->
-          HighlightToEndOfLine
-
-        Highlight z zs ->
-          Highlight ( y + z ) zs
-
-    GT ->
-      Highlight y ( overlaySkip ( Skip ( x - y ) xs ) ys )
-
-
-dropSkip :: Int -> Skip -> Either Skip Highlight
-dropSkip _ SkipToEndOfLine =
-  Left SkipToEndOfLine
-dropSkip x ( Skip y highlight ) =
-  case compare x y of
-    LT ->
-      Left ( Skip ( y - x ) highlight )
-
-    EQ ->
-      Right highlight
-
-    GT ->
-      dropHighlight ( x - y ) highlight
-
-
-dropHighlight :: Int -> Highlight -> Either Skip Highlight
-dropHighlight _ HighlightToEndOfLine =
-  Right HighlightToEndOfLine
-dropHighlight x ( Highlight y skip ) =
-  case compare x y of
-    LT ->
-      Right ( Highlight ( y - x ) skip )
-
-    EQ ->
-      Left skip
-
-    GT ->
-      dropSkip ( x - y ) skip
-
-
-highlight :: RealSrcSpan -> Map Int Highlight
-highlight span =
-  if startLine == endLine then
-    Map.singleton
-      startLine
-      ( Highlight
-          0
-          ( Skip
-              ( startCol - 1 )
-              ( Highlight
-                  ( endCol - startCol )
-                  SkipToEndOfLine
-              )
-          )
-      )
-
-  else
-    Map.fromList
-      ( concat
-          [ pure ( startLine, Highlight 0 ( Skip ( startCol - 1 ) HighlightToEndOfLine ) )
-          , [ ( l, HighlightToEndOfLine ) | l <- [ startLine + 1 .. endLine - 1 ] ]
-          , pure ( endLine, Highlight ( endCol - 1 ) SkipToEndOfLine )
-          ]
-      )
-
-  where
-
-    startCol =
-      srcLocCol start
-
-    startLine =
-      srcLocLine start
-
-    endCol =
-      srcLocCol end
-
-    endLine =
-      srcLocLine end
-
-    start =
-      realSrcSpanStart span
-
-    end =
-      realSrcSpanEnd span
-
-
-zipHighlighting
-  :: [ ( Int, Highlight ) ]
-  -> [ ( Int, String ) ]
-  -> String
-zipHighlighting =
-  highlightWithContext 3 1
-
-  where
-
-    highlightWithContext
-      :: Int -> Int -> [ ( Int, Highlight ) ] -> [ ( Int, String ) ] -> String
-    highlightWithContext _ currLine ( ( i, highlight ) : hs ) [] =
-      ""
-    highlightWithContext _ currLine [] _ =
-      ""
-    highlightWithContext n currLine ( ( i, highlight ) : hs ) ( ( linum, l ) : ls ) =
-      case compare currLine i of
-        LT | i - currLine > n ->
-          highlightWithContext
-            n
-            ( currLine + 1 )
-            ( ( i, highlight ) : hs )
-            ls
-
-        LT ->
-             "    "
-          ++ show linum
-          ++ " │ "
-          ++  l
-          ++ "\n"
-          ++ highlightWithContext
-               ( n - 1 )
-               ( currLine + 1 )
-               ( ( i, highlight ) : hs )
-               ls
-
-        EQ ->
-             "    "
-          ++ show linum
-          ++ " │ "
-          ++ highlightString highlight l
-          ++ "\n"
-          ++ trailingContext 3 ( currLine + 1 ) hs ls
-
-        GT ->
-          error "Forgot to highlight something!"
-
-    trailingContext
-      :: Int -> Int -> [ ( Int, Highlight ) ] -> [ ( Int, String ) ] -> String
-    trailingContext n currLine _ [] =
-      ""
-    trailingContext n currLine [] ( ( linum, l ) : ls ) =
-      if n > 0 then
-           "    "
-        ++ show linum
-        ++ " │ "
-        ++ l
-        ++ "\n"
-        ++ trailingContext ( n - 1 ) ( currLine + 1 ) [] ls
-      else
-        ""
-    trailingContext n currLine ( ( i, highlight ) : hs ) ( ( linum, l ) : ls ) =
-      case compare currLine i of
-        LT | n > 0 ->
-             "    "
-          ++ show linum
-          ++ " │ "
-          ++ l
-          ++ "\n"
-          ++ trailingContext ( n - 1 ) ( currLine + 1 ) ( ( i, highlight ) : hs ) ls
-
-        LT ->
-             "\n"
-          ++ highlightWithContext 3 ( currLine + 1 ) ( ( i, highlight ) : hs ) ls
-
-        EQ ->
-             "    "
-          ++ show linum
-          ++ " │ "
-          ++ highlightString highlight l
-          ++ "\n"
-          ++ trailingContext 3 ( currLine + 1 ) hs ls
-
-        GT ->
-          error "Forgot to highlight!"
-
-
-highlightString :: Highlight -> String -> String
-highlightString HighlightToEndOfLine s =
-  hlCode
-    <> s
-    <> setSGRCode []
-highlightString ( Highlight n skip ) s =
-  hlCode
-    <> take n s
-    <> setSGRCode []
-    <> skipThenHighlight skip ( drop n s )
-
-
-skipThenHighlight :: Skip -> String -> String
-skipThenHighlight SkipToEndOfLine s =
-  s
-skipThenHighlight ( Skip n h ) s =
-  take n s <> highlightString h ( drop n s )
-
-
-hlCode =
-  setSGRCode [ SetColor Background Vivid Red, SetColor Foreground Vivid White ]
 
 
 -- | Recursively search for .hie files in given directory

@@ -84,7 +84,7 @@ import "ghc" OccName
   , occNameString
   , varName
   )
-import "ghc" Outputable ( Outputable, showSDoc )
+import "ghc" Outputable ( Outputable, showSDoc, ppr )
 import "ghc" SrcLoc ( RealSrcSpan, srcLocLine, srcLocCol, realSrcSpanStart, realSrcSpanEnd )
 import "ghc" SysTools ( initSysTools )
 import "ghc" UniqSupply ( mkSplitUniqSupply )
@@ -202,16 +202,25 @@ main = do
     foldMap getHieFilesIn hiePaths
 
   nameCache <- do
-    uniqSupply <-
-      mkSplitUniqSupply 'z'
-
+    uniqSupply <- mkSplitUniqSupply 'z'
     return ( initNameCache uniqSupply [] )
 
   dynFlags <- do
-    systemSettings <-
-      initSysTools libdir
-
+    systemSettings <- initSysTools libdir
     return ( defaultDynFlags systemSettings ( [], [] ) )
+
+  moreRoots <-
+    liftIO do
+      ( HieFileResult{ hie_file_result }, _ ) <-
+        readHieFile nameCache "./dist-newstyle/build/x86_64-linux/ghc-8.8.1/circuithub-api-0.0.4/noopt/build/Handler.hie"
+
+      return $
+        foldMap
+          ( \case
+              Avail name -> foldMap Set.singleton ( nameToDeclaration name )
+              _ -> mempty
+          )
+          ( hie_exports hie_file_result )
 
   analysis <-
     flip execStateT emptyAnalysis do
@@ -223,13 +232,10 @@ main = do
 
         analyseHieFile keepExports hie_file_result
 
-        -- liftIO ( print ( Map.keys ( getAsts ( hie_asts hie_file_result ))))
-
-        -- liftIO ( putStrLn ( foldMap ( showSDoc dynFlags . ppHie ) ( getAsts ( hie_asts hie_file_result ) ) ) )
 
   let
     reachableSet =
-      reachable analysis roots
+      reachable analysis ( moreRoots <> roots )
 
     dead =
       Set.filter
@@ -244,386 +250,24 @@ main = do
         )
         ( allDeclarations analysis Set.\\ reachableSet )
 
-    highlightingMap =
-      Map.unionsWith
-        overlayHighlight
-        ( foldMap
-            ( \d ->
-                foldMap
-                  ( foldMap \m -> [ highlight m ] )
-                  ( Map.lookup d ( declarationSites analysis ) )
-            )
-            dead
-        )
-
-  writeFile
-    "graph.dot"
-    ( export
-        ( defaultStyle declarationStableName )
-        { vertexAttributes = \v -> [ "label" := occNameString ( declOccName v ) ] }
-        ( dependencyGraph analysis )
-    )
-
-  let
-    go [] _ =
-      return ()
-    go ( ( module_, moduleSource ) : modules ) dead =
-      let
-        ( deadHere, deadElsewhere ) =
-          Set.partition
-            ( \Declaration{ declModule } -> declModule == module_ )
-            dead
-
-        defined =
-          Set.filter
-            ( `Map.member` ( declarationSites analysis ) )
-            deadHere
-
-        highlightingMap =
-          Map.unionsWith
-            overlayHighlight
-            ( foldMap
-                ( \d ->
-                    foldMap
-                      ( foldMap ( \m -> [ highlight m ] ) )
-                      ( Map.lookup d ( declarationSites analysis ) )
+    warnings =
+      Map.unionsWith (++) $
+      foldMap
+        ( \d ->
+            [ Map.unionsWith (++) $
+              foldMap
+                ( \_ ->
+                    [ Map.singleton ( declModule d ) [ d ] ]
                 )
-                defined
-            )
-
-      in do
-      unless ( Set.null deadHere ) do
-        putStrLn
-          (    "Found "
-            ++ show ( Set.size defined )
-            ++ " unused declarations in "
-            ++ moduleNameString ( moduleName module_ )
-            ++ ":"
-          )
-
-        putStrLn ""
-
-        putStrLn
-          ( unlines
-              ( foldMap
-                  ( pure . ( "  - " ++ ) . declarationStableName )
-                  deadHere
-              )
-          )
-
-        putStrLn
-          ( zipHighlighting
-              ( Map.toList highlightingMap )
-              ( zip [ 1 .. ] ( lines moduleSource ) )
-          )
-
-      go modules deadElsewhere
-
-  go ( Map.toList ( moduleSource analysis ) ) dead
-
-
-data Skip =
-  Skip Int Highlight | SkipToEndOfLine
-  deriving ( Show )
-
-
-data Highlight =
-  Highlight Int Skip | HighlightToEndOfLine
-  deriving ( Show )
-
-
-overlayHighlight :: Highlight -> Highlight -> Highlight
-overlayHighlight HighlightToEndOfLine _ =
-  HighlightToEndOfLine
-overlayHighlight _ HighlightToEndOfLine =
-  HighlightToEndOfLine
-overlayHighlight ( Highlight x xs ) ( Highlight y ys ) =
-  case compare x y of
-    LT ->
-      case dropSkip ( y - x ) xs of
-        Left skip ->
-          Highlight y ( overlaySkip skip ys )
-
-        Right HighlightToEndOfLine ->
-          HighlightToEndOfLine
-
-        Right highlight ->
-          overlaySkipHighlight ys highlight
-
-    EQ ->
-      Highlight x ( overlaySkip xs ys )
-
-    GT ->
-      overlayHighlight ( Highlight y ys ) ( Highlight x xs )
-
-
-
-overlaySkip :: Skip -> Skip -> Skip
-overlaySkip SkipToEndOfLine x =
-  x
-overlaySkip x SkipToEndOfLine =
-  x
-overlaySkip ( Skip x xs ) ( Skip y ys ) =
-  case compare x y of
-    LT ->
-      Skip x ( overlaySkipHighlight ( Skip ( y - x ) ys ) xs )
-
-    EQ ->
-      Skip x ( overlayHighlight xs ys )
-
-    GT ->
-      Skip y ( overlaySkipHighlight ( Skip ( x - y ) xs ) ys )
-
-
-overlaySkipHighlight :: Skip -> Highlight -> Highlight
-overlaySkipHighlight _ HighlightToEndOfLine =
-  HighlightToEndOfLine
-overlaySkipHighlight SkipToEndOfLine h =
-  h
-overlaySkipHighlight ( Skip x xs ) ( Highlight y ys ) =
-  case compare x y of
-    LT ->
-      case dropHighlight ( y - x ) xs of
-        Left skip ->
-          Highlight y ( overlaySkip skip ys )
-
-        Right highlight ->
-          case overlaySkipHighlight ys xs of
-            HighlightToEndOfLine ->
-              HighlightToEndOfLine
-
-            Highlight z zs ->
-              Highlight ( y + z ) zs
-
-    EQ ->
-      case overlaySkipHighlight ys xs of
-        HighlightToEndOfLine ->
-          HighlightToEndOfLine
-
-        Highlight z zs ->
-          Highlight ( y + z ) zs
-
-    GT ->
-      Highlight y ( overlaySkip ( Skip ( x - y ) xs ) ys )
-
-
-dropSkip :: Int -> Skip -> Either Skip Highlight
-dropSkip _ SkipToEndOfLine =
-  Left SkipToEndOfLine
-dropSkip x ( Skip y highlight ) =
-  case compare x y of
-    LT ->
-      Left ( Skip ( y - x ) highlight )
-
-    EQ ->
-      Right highlight
-
-    GT ->
-      dropHighlight ( x - y ) highlight
-
-
-dropHighlight :: Int -> Highlight -> Either Skip Highlight
-dropHighlight _ HighlightToEndOfLine =
-  Right HighlightToEndOfLine
-dropHighlight x ( Highlight y skip ) =
-  case compare x y of
-    LT ->
-      Right ( Highlight ( y - x ) skip )
-
-    EQ ->
-      Left skip
-
-    GT ->
-      dropSkip ( x - y ) skip
-
-
-highlight :: RealSrcSpan -> Map Int Highlight
-highlight span =
-  if startLine == endLine then
-    Map.singleton
-      startLine
-      ( Highlight
-          0
-          ( Skip
-              ( startCol - 1 )
-              ( Highlight
-                  ( endCol - startCol )
-                  SkipToEndOfLine
-              )
-          )
-      )
-
-  else
-    Map.fromList
-      ( concat
-          [ pure ( startLine, Highlight 0 ( Skip ( startCol - 1 ) HighlightToEndOfLine ) )
-          , [ ( l, HighlightToEndOfLine ) | l <- [ startLine + 1 .. endLine - 1 ] ]
-          , pure ( endLine, Highlight ( endCol - 1 ) SkipToEndOfLine )
-          ]
-      )
-
-  where
-
-    startCol =
-      srcLocCol start
-
-    startLine =
-      srcLocLine start
-
-    endCol =
-      srcLocCol end
-
-    endLine =
-      srcLocLine end
-
-    start =
-      realSrcSpanStart span
-
-    end =
-      realSrcSpanEnd span
-
-
-zipHighlighting
-  :: [ ( Int, Highlight ) ]
-  -> [ ( Int, String ) ]
-  -> String
-zipHighlighting =
-  highlightWithContext 3 1
-
-  where
-
-    highlightWithContext
-      :: Int -> Int -> [ ( Int, Highlight ) ] -> [ ( Int, String ) ] -> String
-    highlightWithContext _ currLine ( ( i, highlight ) : hs ) [] =
-      ""
-    highlightWithContext _ currLine [] _ =
-      ""
-    highlightWithContext n currLine ( ( i, highlight ) : hs ) ( ( linum, l ) : ls ) =
-      case compare currLine i of
-        LT | i - currLine > n ->
-          highlightWithContext
-            n
-            ( currLine + 1 )
-            ( ( i, highlight ) : hs )
-            ls
-
-        LT ->
-             "    "
-          ++ show linum
-          ++ " │ "
-          ++  l
-          ++ "\n"
-          ++ highlightWithContext
-               ( n - 1 )
-               ( currLine + 1 )
-               ( ( i, highlight ) : hs )
-               ls
-
-        EQ ->
-             "    "
-          ++ show linum
-          ++ " │ "
-          ++ highlightString highlight l
-          ++ "\n"
-          ++ trailingContext 3 ( currLine + 1 ) hs ls
-
-        GT ->
-          error "Forgot to highlight something!"
-
-    trailingContext
-      :: Int -> Int -> [ ( Int, Highlight ) ] -> [ ( Int, String ) ] -> String
-    trailingContext n currLine _ [] =
-      ""
-    trailingContext n currLine [] ( ( linum, l ) : ls ) =
-      if n > 0 then
-           "    "
-        ++ show linum
-        ++ " │ "
-        ++ l
-        ++ "\n"
-        ++ trailingContext ( n - 1 ) ( currLine + 1 ) [] ls
-      else
-        ""
-    trailingContext n currLine ( ( i, highlight ) : hs ) ( ( linum, l ) : ls ) =
-      case compare currLine i of
-        LT | n > 0 ->
-             "    "
-          ++ show linum
-          ++ " │ "
-          ++ l
-          ++ "\n"
-          ++ trailingContext ( n - 1 ) ( currLine + 1 ) ( ( i, highlight ) : hs ) ls
-
-        LT ->
-             "\n"
-          ++ highlightWithContext 3 ( currLine + 1 ) ( ( i, highlight ) : hs ) ls
-
-        EQ ->
-             "    "
-          ++ show linum
-          ++ " │ "
-          ++ highlightString highlight l
-          ++ "\n"
-          ++ trailingContext 3 ( currLine + 1 ) hs ls
-
-        GT ->
-          error "Forgot to highlight!"
-
-
-highlightString :: Highlight -> String -> String
-highlightString HighlightToEndOfLine s =
-  hlCode
-    <> s
-    <> setSGRCode []
-highlightString ( Highlight n skip ) s =
-  hlCode
-    <> take n s
-    <> setSGRCode []
-    <> skipThenHighlight skip ( drop n s )
-
-
-skipThenHighlight :: Skip -> String -> String
-skipThenHighlight SkipToEndOfLine s =
-  s
-skipThenHighlight ( Skip n h ) s =
-  take n s <> highlightString h ( drop n s )
-
-
-hlCode =
-  setSGRCode [ SetColor Background Vivid Red, SetColor Foreground Vivid White ]
-
-
--- | Recursively search for .hie files in given directory
-getHieFilesIn :: FilePath -> IO [FilePath]
-getHieFilesIn path = do
-  exists <-
-    doesPathExist path
-
-  if exists
-    then do
-      isFile <-
-        doesFileExist path
-
-      if isFile && "hie" `isExtensionOf` path
-        then do
-          path' <-
-            canonicalizePath path
-
-          return [ path' ]
-
-        else do
-          isDir <-
-            doesDirectoryExist path
-
-          if isDir
-            then do
-              cnts <-
-                listDirectory path
-
-              withCurrentDirectory path ( foldMap getHieFilesIn cnts )
-
-            else
-              return []
-
-    else
-      return []
+                ( Map.lookup d ( declarationSites analysis ) )
+            ]
+        )
+        dead
+
+  traverse_ ( putStrLn . showSDoc dynFlags . ppr . moduleUnitId ) ( Map.keys warnings )
+
+  for_ ( Map.toList warnings ) \( m, declarations ) -> do
+    putStrLn $ moduleNameString $ moduleName m
+    for_ declarations \d ->
+      putStrLn $ "  - " <> occNameString ( declOccName d )
+    putStrLn ""
