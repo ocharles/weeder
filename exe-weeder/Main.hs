@@ -12,7 +12,6 @@ import "base" Control.Applicative ( (<**>), liftA2, many, some )
 import "base" Control.Monad ( guard )
 import "base" Control.Monad.IO.Class ( liftIO )
 import "base" Data.Foldable ( fold, for_ )
-import "base" Data.List ( intercalate )
 
 import qualified "containers" Data.Map.Strict as Map
 import "containers" Data.Set ( Set )
@@ -195,7 +194,7 @@ main = do
 
       putStrLn $
         unwords
-          [ intercalate ":" [ path, show ( srcLocLine start ), show ( srcLocCol start ) ]
+          [ foldMap ( <> ":" ) [ path, show ( srcLocLine start ), show ( srcLocCol start ) ]
           , occNameString ( declOccName d )
           ]
 
