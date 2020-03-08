@@ -31,25 +31,3 @@ executable weeder
   main-is: Main.hs
   hs-source-dirs: exe-weeder
   ghc-options: -Wall -fwarn-incomplete-uni-patterns
-
-
-test-suite tests
-  build-depends: algebraic-graphs
-               , ansi-terminal
-               , base
-               , bytestring
-               , containers
-               , directory
-               , filepath
-               , ghc
-               , ghc-paths
-               , mtl
-               , optparse-applicative
-               , transformers
-               , weeder
-               , tasty
-               , tasty-hunit
-  main-is: Main.hs
-  hs-source-dirs: tests
-  ghc-options: -fwrite-ide-info
-  type: exitcode-stdio-1.0
