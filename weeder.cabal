@@ -4,41 +4,30 @@ build-type: Simple
 version: 1.0
 
 library
-  build-depends: algebraic-graphs
-               , ansi-terminal
-               , base
-               , bytestring
-               , containers
-               , directory
-               , filepath
-               , ghc
-               , ghc-paths
-               , mtl
-               , optparse-applicative
-               , transformers
-               , generic-lens
-               , lens
+  build-depends:
+    algebraic-graphs ^>= 0.5      ,
+    base             ^>= 4.13.0.0 ,
+    containers       ^>= 0.6.2.1  ,
+    generic-lens     ^>= 1.1.0.0  ,
+    ghc              ^>= 8.8.1    ,
+    lens             ^>= 4.18.1   ,
+    mtl              ^>= 2.2.2    ,
+    transformers     ^>= 0.5.6.2
   hs-source-dirs: src
   exposed-modules: Weeder
   ghc-options: -Wall -fwarn-incomplete-uni-patterns
 
 
 executable weeder
-  build-depends: algebraic-graphs
-               , ansi-terminal
-               , base
-               , bytestring
-               , containers
-               , directory
-               , filepath
-               , ghc
-               , ghc-paths
-               , mtl
-               , optparse-applicative
-               , transformers
-               , weeder
-               , tasty
-               , tasty-hunit
+  build-depends:
+    base                 ^>= 4.13.0.0 ,
+    containers           ^>= 0.6.2.1  ,
+    directory            ^>= 1.3.3.2  ,
+    filepath             ^>= 1.4.2.1  ,
+    ghc                  ^>= 8.8.1    ,
+    optparse-applicative ^>= 0.15.0.0 ,
+    transformers         ^>= 0.5.6.2  ,
+    weeder
   main-is: Main.hs
   hs-source-dirs: exe-weeder
   ghc-options: -Wall -fwarn-incomplete-uni-patterns
