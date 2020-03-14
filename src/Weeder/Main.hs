@@ -8,16 +8,26 @@
 
 module Weeder.Main ( main, mainWithConfig ) where
 
+-- base
 import Control.Monad ( guard )
 import Control.Monad.IO.Class ( liftIO )
+import Data.Bool
+import Data.Foldable
 
+-- containers
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 
+-- dhall
+import qualified Dhall
+
+-- directory
 import System.Directory ( doesPathExist, withCurrentDirectory, canonicalizePath, listDirectory, doesFileExist, doesDirectoryExist )
 
+-- filepath
 import System.FilePath ( isExtensionOf )
 
+-- ghc
 import HieBin ( HieFileResult( HieFileResult, hie_file_result ) )
 import HieBin ( readHieFile )
 import NameCache ( initNameCache )
@@ -25,14 +35,15 @@ import OccName ( occNameString )
 import SrcLoc ( srcLocLine, srcLocCol, realSrcSpanStart )
 import UniqSupply ( mkSplitUniqSupply )
 
+-- optparse-applicative
+import Options.Applicative
+
+-- transformers
 import Control.Monad.Trans.State.Strict ( execStateT )
 
+-- weeder
 import Weeder
 import Weeder.Config
-import qualified Dhall
-import Options.Applicative
-import Data.Foldable
-import Data.Bool
 
 
 main :: IO ()

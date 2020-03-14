@@ -25,9 +25,11 @@ module Weeder
   )
   where
 
+-- algebraic-graphs
 import Algebra.Graph ( Graph, edge, empty, overlay, vertex, vertexList )
 import Algebra.Graph.ToGraph ( dfs )
 
+-- base
 import Control.Applicative ( Alternative )
 import Control.Monad ( guard, msum, when )
 import Data.Foldable ( for_, traverse_ )
@@ -36,12 +38,17 @@ import Data.Monoid ( First( First ) )
 import GHC.Generics ( Generic )
 import Prelude hiding ( span )
 
+-- containers
 import Data.Map.Strict ( Map )
 import qualified Data.Map.Strict as Map
 import Data.Sequence ( Seq )
 import Data.Set ( Set )
 import qualified Data.Set as Set
 
+-- generic-lens
+import Data.Generics.Labels ()
+
+-- ghc
 import Avail ( AvailInfo( Avail, AvailTC ) )
 import FieldLabel ( FieldLbl( FieldLabel, flSelector ) )
 import HieTypes
@@ -68,12 +75,13 @@ import OccName
   )
 import SrcLoc ( RealSrcSpan, realSrcSpanStart, realSrcSpanEnd )
 
-import Data.Generics.Labels ()
-
+-- lens
 import Control.Lens ( (%=) )
 
+-- mtl
 import Control.Monad.State.Class ( MonadState )
 
+-- transformers
 import Control.Monad.Trans.Maybe ( runMaybeT )
 
 

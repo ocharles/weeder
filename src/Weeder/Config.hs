@@ -5,8 +5,14 @@
 
 module Weeder.Config where
 
+-- containers
+import Data.Set ( Set )
+import qualified Data.Set as Set
+
+-- dhall
 import qualified Dhall
-import Weeder
+
+-- ghc
 import Module
   ( DefUnitId( DefUnitId )
   , Module( Module )
@@ -18,8 +24,9 @@ import OccName
   ( mkOccName
   , varName
   )
-import Data.Set ( Set )
-import qualified Data.Set as Set
+
+-- weeder
+import Weeder
 
 
 -- | Configuration for Weeder analysis.
