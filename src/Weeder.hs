@@ -260,8 +260,7 @@ analyseBinding :: ( Alternative m, MonadState Analysis m ) => HieAST a -> m ()
 analyseBinding n@Node{ nodeSpan, nodeInfo = NodeInfo{ nodeAnnotations } } = do
   guard
    ( or
-       [ ( "TypeSig", "Sig" ) `Set.member` nodeAnnotations
-       , ( "FunBind", "HsBindLR" ) `Set.member` nodeAnnotations
+       [ ( "FunBind", "HsBindLR" ) `Set.member` nodeAnnotations
        -- , ( "PatBind", "HsBindLR" ) `Set.member` nodeAnnotations
        -- , ( "SynDecl", "TyClDecl" ) `Set.member` nodeAnnotations
        ]
