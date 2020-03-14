@@ -1,70 +1,38 @@
 {-# language ApplicativeDo #-}
+{-# language LambdaCase #-}
 {-# language BlockArguments #-}
 {-# language FlexibleContexts #-}
 {-# language LambdaCase #-}
 {-# language NamedFieldPuns #-}
 {-# language OverloadedStrings #-}
-{-# language PackageImports #-}
 
-module Weeder.Main ( mainWith ) where
+module Weeder.Main ( main, mainWithConfig ) where
 
-import "base" Control.Applicative ( (<**>), liftA2, many, some )
-import "base" Control.Monad ( guard )
-import "base" Control.Monad.IO.Class ( liftIO )
-import "base" Data.Foldable ( fold, for_ )
+import Control.Monad ( guard )
+import Control.Monad.IO.Class ( liftIO )
 
-import qualified "containers" Data.Map.Strict as Map
-import "containers" Data.Set ( Set )
-import qualified "containers" Data.Set as Set
+import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 
-import "directory" System.Directory ( doesPathExist, withCurrentDirectory, canonicalizePath, listDirectory, doesFileExist, doesDirectoryExist )
+import System.Directory ( doesPathExist, withCurrentDirectory, canonicalizePath, listDirectory, doesFileExist, doesDirectoryExist )
 
-import "filepath" System.FilePath ( isExtensionOf )
+import System.FilePath ( isExtensionOf )
 
-import "ghc" FastString ( unpackFS )
-import "ghc" HieBin ( HieFileResult( HieFileResult, hie_file_result ) )
-import "ghc" HieBin ( readHieFile )
-import "ghc" Module
-  ( DefUnitId( DefUnitId )
-  , Module( Module )
-  , UnitId( DefiniteUnitId )
-  , mkModuleName
-  , moduleUnitId
-  , stringToInstalledUnitId
-  , unitIdFS
-  )
-import "ghc" NameCache ( initNameCache )
-import "ghc" OccName
-  ( mkOccName
-  , occNameString
-  , varName
-  )
-import "ghc" SrcLoc ( srcLocLine, srcLocCol, realSrcSpanStart )
-import "ghc" UniqSupply ( mkSplitUniqSupply )
+import HieBin ( HieFileResult( HieFileResult, hie_file_result ) )
+import HieBin ( readHieFile )
+import NameCache ( initNameCache )
+import OccName ( occNameString )
+import SrcLoc ( srcLocLine, srcLocCol, realSrcSpanStart )
+import UniqSupply ( mkSplitUniqSupply )
 
-import "optparse-applicative" Options.Applicative
-  ( Parser
-  , execParser
-  , fullDesc
-  , header
-  , help
-  , helper
-  , info
-  , long
-  , maybeReader
-  , metavar
-  , option
-  , strArgument
-  , strOption
-  )
-
-import "transformers" Control.Monad.Trans.State.Strict ( execStateT )
+import Control.Monad.Trans.State.Strict ( execStateT )
 
 import Weeder
 import Weeder.Config
-
-
-data Mode = Run Config
+import qualified Dhall
+import Options.Applicative
+import Data.Foldable
+import Data.Bool
 
 
 main :: IO ()
@@ -72,113 +40,101 @@ main = do
   configExpr <-
     execParser $
       info
-        ( asum
-            [ Run <$>
-                strOption
-                  (    long "config"
-                    <> help "A Dhall expression for Weeder's configuration. Can either be a file path (a Dhall import) or a literal Dhall expression."
-                  )
-            , GenerateConfig
-            ]
+        ( strOption
+            (    long "config"
+              <> help "A Dhall expression for Weeder's configuration. Can either be a file path (a Dhall import) or a literal Dhall expression."
+              <> value "./weeder.dhall"
+            )
         )
         mempty
 
+  Dhall.input config configExpr >>= mainWithConfig
 
 
-
-
-mainWithConfig :: Config -> [ FilePath ] -> IO ()
-mainWithConfig Config{} hiePaths = do
+mainWithConfig :: Config -> IO ()
+mainWithConfig Config{ roots, typeClassRoots, ignore } = do
   hieFilePaths <-
-    foldMap getHieFilesIn hiePaths
+    getHieFilesIn "./."
 
   nameCache <- do
     uniqSupply <- mkSplitUniqSupply 'z'
     return ( initNameCache uniqSupply [] )
 
---   analysis <-
---     flip execStateT emptyAnalysis do
---       for_ hieFilePaths \hieFilePath -> do
---         ( HieFileResult{ hie_file_result }, _ ) <-
---           liftIO ( readHieFile nameCache hieFilePath )
+  analysis <-
+    flip execStateT emptyAnalysis do
+      for_ hieFilePaths \hieFilePath -> do
+        ( HieFileResult{ hie_file_result }, _ ) <-
+          liftIO ( readHieFile nameCache hieFilePath )
 
---         analyseHieFile hie_file_result
+        analyseHieFile hie_file_result
 
---   let
---     reachableSet =
---       reachable
---         analysis
---         ( roots <> Set.map DeclarationRoot ( implicitRoots analysis ) )
+  let
+    reachableSet =
+      reachable
+        analysis
+        ( roots <> bool mempty ( Set.map DeclarationRoot ( implicitRoots analysis ) ) typeClassRoots )
 
---     dead =
---       Set.filter
---         ( \d ->
---             if Set.null units then
---               True
+    dead =
+      Set.filter
+        ( not . ( `Set.member` ignore ) )
+        ( allDeclarations analysis Set.\\ reachableSet )
 
---             else
---               Set.member
---                 ( unpackFS ( unitIdFS ( moduleUnitId ( declModule d ) ) ) )
---                 units
---         )
---         ( allDeclarations analysis Set.\\ reachableSet )
+    warnings =
+      Map.unionsWith (++) $
+      foldMap
+        ( \d ->
+            fold $ do
+              moduleFilePath <- Map.lookup ( declModule d ) ( modulePaths analysis )
 
---     warnings =
---       Map.unionsWith (++) $
---       foldMap
---         ( \d ->
---             fold $ do
---               moduleFilePath <- Map.lookup ( declModule d ) ( modulePaths analysis )
+              spans <- Map.lookup d ( declarationSites analysis )
+              guard $ not $ null spans
 
---               spans <- Map.lookup d ( declarationSites analysis )
---               guard $ not $ null spans
+              return [ Map.singleton moduleFilePath ( liftA2 (,) (Set.toList spans) (pure d) ) ]
+        )
+        dead
 
---               return [ Map.singleton moduleFilePath ( liftA2 (,) (Set.toList spans) (pure d) ) ]
---         )
---         dead
+  for_ ( Map.toList warnings ) \( path, declarations ) ->
+    for_ declarations \( srcSpan, d ) -> do
+      let start = realSrcSpanStart srcSpan
 
---   for_ ( Map.toList warnings ) \( path, declarations ) ->
---     for_ declarations \( srcSpan, d ) -> do
---       let start = realSrcSpanStart srcSpan
-
---       putStrLn $
---         unwords
---           [ foldMap ( <> ":" ) [ path, show ( srcLocLine start ), show ( srcLocCol start ) ]
---           , occNameString ( declOccName d )
---           ]
+      putStrLn $
+        unwords
+          [ foldMap ( <> ":" ) [ path, show ( srcLocLine start ), show ( srcLocCol start ) ]
+          , occNameString ( declOccName d )
+          ]
 
 
--- -- | Recursively search for .hie files in given directory
--- getHieFilesIn :: FilePath -> IO [FilePath]
--- getHieFilesIn path = do
---   exists <-
---     doesPathExist path
+-- | Recursively search for .hie files in given directory
+getHieFilesIn :: FilePath -> IO [FilePath]
+getHieFilesIn path = do
+  exists <-
+    doesPathExist path
 
---   if exists
---     then do
---       isFile <-
---         doesFileExist path
+  if exists
+    then do
+      isFile <-
+        doesFileExist path
 
---       if isFile && "hie" `isExtensionOf` path
---         then do
---           path' <-
---             canonicalizePath path
+      if isFile && "hie" `isExtensionOf` path
+        then do
+          path' <-
+            canonicalizePath path
 
---           return [ path' ]
+          return [ path' ]
 
---         else do
---           isDir <-
---             doesDirectoryExist path
+        else do
+          isDir <-
+            doesDirectoryExist path
 
---           if isDir
---             then do
---               cnts <-
---                 listDirectory path
+          if isDir
+            then do
+              cnts <-
+                listDirectory path
 
---               withCurrentDirectory path ( foldMap getHieFilesIn cnts )
+              withCurrentDirectory path ( foldMap getHieFilesIn cnts )
 
---             else
---               return []
+            else
+              return []
 
---     else
---       return []
+    else
+      return []

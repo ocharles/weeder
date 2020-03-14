@@ -25,26 +25,26 @@ module Weeder
   )
   where
 
-import "algebraic-graphs" Algebra.Graph ( Graph, edge, empty, overlay, vertex, vertexList )
-import "algebraic-graphs" Algebra.Graph.ToGraph ( dfs )
+import Algebra.Graph ( Graph, edge, empty, overlay, vertex, vertexList )
+import Algebra.Graph.ToGraph ( dfs )
 
-import "base" Control.Applicative ( Alternative )
-import "base" Control.Monad ( guard, msum, when )
-import "base" Data.Foldable ( for_, traverse_ )
-import "base" Data.List ( intercalate )
-import "base" Data.Monoid ( First( First ) )
-import "base" GHC.Generics ( Generic )
-import "base" Prelude hiding ( span )
+import Control.Applicative ( Alternative )
+import Control.Monad ( guard, msum, when )
+import Data.Foldable ( for_, traverse_ )
+import Data.List ( intercalate )
+import Data.Monoid ( First( First ) )
+import GHC.Generics ( Generic )
+import Prelude hiding ( span )
 
-import "containers" Data.Map.Strict ( Map )
-import qualified "containers" Data.Map.Strict as Map
-import "containers" Data.Sequence ( Seq )
-import "containers" Data.Set ( Set )
-import qualified "containers" Data.Set as Set
+import Data.Map.Strict ( Map )
+import qualified Data.Map.Strict as Map
+import Data.Sequence ( Seq )
+import Data.Set ( Set )
+import qualified Data.Set as Set
 
-import "ghc" Avail ( AvailInfo( Avail, AvailTC ) )
-import "ghc" FieldLabel ( FieldLbl( FieldLabel, flSelector ) )
-import "ghc" HieTypes
+import Avail ( AvailInfo( Avail, AvailTC ) )
+import FieldLabel ( FieldLbl( FieldLabel, flSelector ) )
+import HieTypes
   ( BindType( RegularBind )
   , DeclType( DataDec, ClassDec, ConDec )
   , ContextInfo( Decl, ValBind, PatternBind, Use, TyDecl, ClassTyDecl )
@@ -55,9 +55,9 @@ import "ghc" HieTypes
   , NodeInfo( NodeInfo, nodeIdentifiers, nodeAnnotations )
   , Scope( ModuleScope )
   )
-import "ghc" Module ( Module, moduleStableString )
-import "ghc" Name ( Name, nameOccName, nameModule_maybe )
-import "ghc" OccName
+import Module ( Module, moduleStableString )
+import Name ( Name, nameOccName, nameModule_maybe )
+import OccName
   ( OccName
   , isDataOcc
   , isDataSymOcc
@@ -66,15 +66,15 @@ import "ghc" OccName
   , isVarOcc
   , occNameString
   )
-import "ghc" SrcLoc ( RealSrcSpan, realSrcSpanStart, realSrcSpanEnd )
+import SrcLoc ( RealSrcSpan, realSrcSpanStart, realSrcSpanEnd )
 
-import "generic-lens" Data.Generics.Labels ()
+import Data.Generics.Labels ()
 
-import "lens" Control.Lens ( (%=) )
+import Control.Lens ( (%=) )
 
-import "mtl" Control.Monad.State.Class ( MonadState )
+import Control.Monad.State.Class ( MonadState )
 
-import "transformers" Control.Monad.Trans.Maybe ( runMaybeT )
+import Control.Monad.Trans.Maybe ( runMaybeT )
 
 
 data Declaration =
