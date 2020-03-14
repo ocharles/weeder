@@ -1,7 +1,7 @@
 {-# language ApplicativeDo #-}
 {-# language BlockArguments #-}
-{-# language RecordWildCards #-}
 {-# language OverloadedStrings #-}
+{-# language RecordWildCards #-}
 
 module Weeder.Config where
 

@@ -1,7 +1,7 @@
 {-# language ApplicativeDo #-}
-{-# language LambdaCase #-}
 {-# language BlockArguments #-}
 {-# language FlexibleContexts #-}
+{-# language LambdaCase #-}
 {-# language LambdaCase #-}
 {-# language NamedFieldPuns #-}
 {-# language OverloadedStrings #-}
@@ -22,7 +22,7 @@ import qualified Data.Set as Set
 import qualified Dhall
 
 -- directory
-import System.Directory ( doesPathExist, withCurrentDirectory, canonicalizePath, listDirectory, doesFileExist, doesDirectoryExist )
+import System.Directory ( canonicalizePath, doesDirectoryExist, doesFileExist, doesPathExist, listDirectory, withCurrentDirectory )
 
 -- filepath
 import System.FilePath ( isExtensionOf )
@@ -32,7 +32,7 @@ import HieBin ( HieFileResult( HieFileResult, hie_file_result ) )
 import HieBin ( readHieFile )
 import NameCache ( initNameCache )
 import OccName ( occNameString )
-import SrcLoc ( srcLocLine, srcLocCol, realSrcSpanStart )
+import SrcLoc ( realSrcSpanStart, srcLocCol, srcLocLine )
 import UniqSupply ( mkSplitUniqSupply )
 
 -- optparse-applicative

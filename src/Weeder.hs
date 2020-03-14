@@ -22,8 +22,7 @@ module Weeder
   , implicitRoots
   , reachable
   , nameToDeclaration
-  )
-  where
+  ) where
 
 -- algebraic-graphs
 import Algebra.Graph ( Graph, edge, empty, overlay, vertex, vertexList )
@@ -53,8 +52,8 @@ import Avail ( AvailInfo( Avail, AvailTC ) )
 import FieldLabel ( FieldLbl( FieldLabel, flSelector ) )
 import HieTypes
   ( BindType( RegularBind )
-  , DeclType( DataDec, ClassDec, ConDec )
   , ContextInfo( Decl, ValBind, PatternBind, Use, TyDecl, ClassTyDecl )
+  , DeclType( DataDec, ClassDec, ConDec )
   , HieAST( Node, nodeInfo, nodeChildren, nodeSpan )
   , HieASTs( HieASTs )
   , HieFile( HieFile, hie_asts, hie_exports, hie_module, hie_hs_file )
@@ -63,7 +62,7 @@ import HieTypes
   , Scope( ModuleScope )
   )
 import Module ( Module, moduleStableString )
-import Name ( Name, nameOccName, nameModule_maybe )
+import Name ( Name, nameModule_maybe, nameOccName )
 import OccName
   ( OccName
   , isDataOcc
@@ -73,7 +72,7 @@ import OccName
   , isVarOcc
   , occNameString
   )
-import SrcLoc ( RealSrcSpan, realSrcSpanStart, realSrcSpanEnd )
+import SrcLoc ( RealSrcSpan, realSrcSpanEnd, realSrcSpanStart )
 
 -- lens
 import Control.Lens ( (%=) )
@@ -389,7 +388,6 @@ uses :: HieAST a -> Set Declaration
 uses =
     foldMap Set.singleton
   . findIdentifiers \identInfo -> Use `Set.member` identInfo
-
 
 
 nameToDeclaration :: Name -> Maybe Declaration
