@@ -12,6 +12,7 @@
 module Weeder
   ( Declaration( Declaration, declModule, declOccName )
   , Root(..)
+  , moduleSource
   , allDeclarations
   , modulePaths
   , analyseHieFile
@@ -37,6 +38,9 @@ import Data.Monoid ( First( First ) )
 import GHC.Generics ( Generic )
 import Prelude hiding ( span )
 
+-- bytestring
+import Data.ByteString ( ByteString )
+
 -- containers
 import Data.Map.Strict ( Map )
 import qualified Data.Map.Strict as Map
@@ -56,7 +60,7 @@ import HieTypes
   , DeclType( DataDec, ClassDec, ConDec )
   , HieAST( Node, nodeInfo, nodeChildren, nodeSpan )
   , HieASTs( HieASTs )
-  , HieFile( HieFile, hie_asts, hie_exports, hie_module, hie_hs_file )
+  , HieFile( HieFile, hie_asts, hie_exports, hie_module, hie_hs_file, hie_hs_src )
   , IdentifierDetails( IdentifierDetails, identInfo )
   , NodeInfo( NodeInfo, nodeIdentifiers, nodeAnnotations )
   , Scope( ModuleScope )
@@ -132,6 +136,7 @@ data Analysis =
       -- ^ All exports for a given module.
     , modulePaths :: Map Module FilePath
       -- ^ A map from modules to the file path to the .hs file defining them.
+    , moduleSource :: Map Module ByteString
     }
   deriving
     ( Generic )
@@ -139,7 +144,7 @@ data Analysis =
 
 emptyAnalysis :: Analysis
 emptyAnalysis =
-  Analysis empty mempty mempty mempty mempty
+  Analysis empty mempty mempty mempty mempty mempty
 
 
 data Root
@@ -170,8 +175,9 @@ allDeclarations Analysis{ dependencyGraph } =
 
 
 analyseHieFile :: MonadState Analysis m => HieFile -> m ()
-analyseHieFile HieFile{ hie_asts = HieASTs hieASTs, hie_exports, hie_module, hie_hs_file } = do
+analyseHieFile HieFile{ hie_asts = HieASTs hieASTs, hie_exports, hie_module, hie_hs_file, hie_hs_src } = do
   #modulePaths %= Map.insert hie_module hie_hs_file
+  #moduleSource %= Map.insert hie_module hie_hs_src
 
   for_ hieASTs \ast -> do
     addAllDeclarations ast
@@ -254,17 +260,9 @@ topLevelAnalysis n@Node{ nodeChildren } = do
       return ()
 
 
--- | Try and analyse binding-like nodes. This includes function bindings,
--- type signatures, pattern bindings and type synonyms.
 analyseBinding :: ( Alternative m, MonadState Analysis m ) => HieAST a -> m ()
 analyseBinding n@Node{ nodeSpan, nodeInfo = NodeInfo{ nodeAnnotations } } = do
-  guard
-   ( or
-       [ ( "FunBind", "HsBindLR" ) `Set.member` nodeAnnotations
-       -- , ( "PatBind", "HsBindLR" ) `Set.member` nodeAnnotations
-       -- , ( "SynDecl", "TyClDecl" ) `Set.member` nodeAnnotations
-       ]
-   )
+  guard $ ( "FunBind", "HsBindLR" ) `Set.member` nodeAnnotations
 
   for_ ( findDeclarations n ) \d -> do
     define d nodeSpan

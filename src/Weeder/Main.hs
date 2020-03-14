@@ -2,7 +2,6 @@
 {-# language BlockArguments #-}
 {-# language FlexibleContexts #-}
 {-# language LambdaCase #-}
-{-# language LambdaCase #-}
 {-# language NamedFieldPuns #-}
 {-# language OverloadedStrings #-}
 
@@ -13,6 +12,9 @@ import Control.Monad ( guard )
 import Control.Monad.IO.Class ( liftIO )
 import Data.Bool
 import Data.Foldable
+
+-- bytestring
+import qualified Data.ByteString.Char8 as BS
 
 -- containers
 import qualified Data.Map.Strict as Map
@@ -96,23 +98,37 @@ mainWithConfig Config{ roots, typeClassRoots, ignore } = do
         ( \d ->
             fold $ do
               moduleFilePath <- Map.lookup ( declModule d ) ( modulePaths analysis )
+              moduleSource <- Map.lookup ( declModule d ) ( moduleSource analysis )
 
               spans <- Map.lookup d ( declarationSites analysis )
               guard $ not $ null spans
 
-              return [ Map.singleton moduleFilePath ( liftA2 (,) (Set.toList spans) (pure d) ) ]
+              let snippets = do
+                    srcSpan <- Set.toList spans
+
+                    let start = realSrcSpanStart srcSpan
+                    let firstLine = max 0 ( srcLocLine start - 3 )
+
+                    return ( start, BS.unlines $ take 5 $ drop firstLine $ BS.lines moduleSource )
+
+              return [ Map.singleton moduleFilePath ( liftA2 (,) snippets (pure d) ) ]
         )
         dead
 
   for_ ( Map.toList warnings ) \( path, declarations ) ->
-    for_ declarations \( srcSpan, d ) -> do
-      let start = realSrcSpanStart srcSpan
-
+    for_ declarations \( ( start, snippet ), d ) -> do
       putStrLn $
         unwords
           [ foldMap ( <> ":" ) [ path, show ( srcLocLine start ), show ( srcLocCol start ) ]
+          , "error:"
           , occNameString ( declOccName d )
+          , "is unused"
           ]
+
+      putStrLn ""
+      for_ ( BS.lines snippet ) \line ->
+        BS.putStrLn $ BS.replicate 8 ' ' <> "> " <> line
+      putStrLn ""
 
 
 -- | Recursively search for .hie files in given directory
