@@ -8,13 +8,19 @@ library
     algebraic-graphs ^>= 0.5                    ,
     base             ^>= 4.13.0.0               ,
     containers       ^>= 0.6.2.1                ,
+    dhall            ^>= 1.26.1                 ,
+    directory        ^>= 1.3.3.2                ,
+    filepath         ^>= 1.4.2.1                ,
     generic-lens     ^>= 1.1.0.0 || ^>= 2.0.0.0 ,
     ghc              ^>= 8.8.1                  ,
     lens             ^>= 4.18.1                 ,
     mtl              ^>= 2.2.2                  ,
     transformers     ^>= 0.5.6.2
   hs-source-dirs: src
-  exposed-modules: Weeder
+  exposed-modules:
+    Weeder
+    Weeder.Config
+    Weeder.Main
   ghc-options: -Wall -fwarn-incomplete-uni-patterns
 
 
