@@ -304,7 +304,7 @@ analyseClassDeclaration n@Node{ nodeInfo = NodeInfo{ nodeAnnotations } } = do
 
 
 analyseDataDeclaration :: ( Alternative m, MonadState Analysis m ) => HieAST a -> m ()
-analyseDataDeclaration n@Node { nodeSpan, nodeInfo = NodeInfo{ nodeAnnotations } } = do
+analyseDataDeclaration n@Node { nodeInfo = NodeInfo{ nodeAnnotations } } = do
   guard ( ( "DataDecl", "TyClDecl" ) `Set.member` nodeAnnotations )
 
   for_
@@ -312,9 +312,7 @@ analyseDataDeclaration n@Node { nodeSpan, nodeInfo = NodeInfo{ nodeAnnotations }
         ( First . Just )
         ( findIdentifiers ( any isDataDec ) n )
     )
-    \dataTypeName -> do
-      define dataTypeName nodeSpan
-
+    \dataTypeName ->
       for_ ( constructors n ) \constructor ->
         for_ ( foldMap ( First . Just ) ( findIdentifiers ( any isConDec ) constructor ) ) \conDec -> do
           addDependency conDec dataTypeName
