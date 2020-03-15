@@ -32,10 +32,14 @@ import System.FilePath ( isExtensionOf )
 -- ghc
 import HieBin ( HieFileResult( HieFileResult, hie_file_result ) )
 import HieBin ( readHieFile )
+import Module ( moduleName, moduleNameString )
 import NameCache ( initNameCache )
 import OccName ( occNameString )
 import SrcLoc ( realSrcSpanStart, srcLocCol, srcLocLine )
 import UniqSupply ( mkSplitUniqSupply )
+
+-- regex-tdfa
+import Text.Regex.TDFA ( (=~) )
 
 -- optparse-applicative
 import Options.Applicative
@@ -65,7 +69,7 @@ main = do
 
 
 mainWithConfig :: Config -> IO ()
-mainWithConfig Config{ roots, typeClassRoots, ignore } = do
+mainWithConfig Config{ rootPatterns, typeClassRoots } = do
   hieFilePaths <-
     getHieFilesIn "./."
 
@@ -82,15 +86,22 @@ mainWithConfig Config{ roots, typeClassRoots, ignore } = do
         analyseHieFile hie_file_result
 
   let
+    roots =
+      Set.filter
+        ( \d ->
+            any
+              ( ( moduleNameString ( moduleName ( declModule d ) ) <> "." <> occNameString ( declOccName d ) ) =~ )
+              rootPatterns
+        )
+        ( allDeclarations analysis )
+
     reachableSet =
       reachable
         analysis
-        ( roots <> bool mempty ( Set.map DeclarationRoot ( implicitRoots analysis ) ) typeClassRoots )
+        ( Set.map DeclarationRoot roots <> bool mempty ( Set.map DeclarationRoot ( implicitRoots analysis ) ) typeClassRoots )
 
     dead =
-      Set.filter
-        ( not . ( `Set.member` ignore ) )
-        ( allDeclarations analysis Set.\\ reachableSet )
+      allDeclarations analysis Set.\\ reachableSet
 
     warnings =
       Map.unionsWith (++) $
@@ -109,7 +120,7 @@ mainWithConfig Config{ roots, typeClassRoots, ignore } = do
                     let start = realSrcSpanStart srcSpan
                     let firstLine = max 0 ( srcLocLine start - 3 )
 
-                    return ( start, BS.unlines $ take 5 $ drop firstLine $ BS.lines moduleSource )
+                    return ( start, take 5 $ drop firstLine $ zip [1..] $ BS.lines moduleSource )
 
               return [ Map.singleton moduleFilePath ( liftA2 (,) snippets (pure d) ) ]
         )
@@ -126,8 +137,13 @@ mainWithConfig Config{ roots, typeClassRoots, ignore } = do
           ]
 
       putStrLn ""
-      for_ ( BS.lines snippet ) \line ->
-        BS.putStrLn $ BS.replicate 8 ' ' <> "> " <> line
+      for_ snippet \( n, line ) ->
+        putStrLn $ replicate 8 ' ' <> show n <> " ┃ " <> BS.unpack line
+      putStrLn ""
+
+      putStrLn $ replicate 4 ' ' <> "Delete this definition or add ‘" <>
+              ( moduleNameString ( moduleName ( declModule d ) ) <> "." <> occNameString ( declOccName d ) ) <> "’ as a root to fix this error."
+      putStrLn ""
       putStrLn ""
 
 
