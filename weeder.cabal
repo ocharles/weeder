@@ -36,6 +36,7 @@ library
     Weeder.Config
     Weeder.Main
   ghc-options: -Wall -fwarn-incomplete-uni-patterns
+  default-language: Haskell2010
 
 
 executable weeder
@@ -52,3 +53,4 @@ executable weeder
   main-is: Main.hs
   hs-source-dirs: exe-weeder
   ghc-options: -Wall -fwarn-incomplete-uni-patterns
+  default-language: Haskell2010
