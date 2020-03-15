@@ -10,11 +10,12 @@
 module Weeder.Main ( main, mainWithConfig ) where
 
 -- base
-import Control.Monad ( guard )
+import Control.Monad ( guard, unless )
 import Control.Monad.IO.Class ( liftIO )
 import Data.Bool
 import Data.Foldable
 import Text.Printf ( printf )
+import System.Exit ( exitFailure )
 
 -- bytestring
 import qualified Data.ByteString.Char8 as BS
@@ -162,6 +163,10 @@ mainWithConfig Config{ rootPatterns, typeClassRoots } = do
         <> "’ as a root to fix this error."
       putStrLn ""
       putStrLn ""
+
+  putStrLn $ "Weeds detected: " <> show ( sum ( length <$> warnings ) )
+
+  unless ( null warnings ) exitFailure
 
 
 -- | Recursively search for .hie files in given directory
