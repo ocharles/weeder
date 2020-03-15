@@ -25,6 +25,9 @@ data Config = Config
   }
 
 
+-- | A Dhall expression decoder for 'Config'.
+--
+-- This parses Dhall expressions of the type @{ roots : List Text, type-class-roots : Bool }@.
 config :: Dhall.Decoder Config
 config =
   Dhall.record do

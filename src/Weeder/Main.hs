@@ -5,6 +5,8 @@
 {-# language NamedFieldPuns #-}
 {-# language OverloadedStrings #-}
 
+-- | This module provides an entry point to the Weeder executable.
+
 module Weeder.Main ( main, mainWithConfig ) where
 
 -- base
@@ -12,6 +14,7 @@ import Control.Monad ( guard )
 import Control.Monad.IO.Class ( liftIO )
 import Data.Bool
 import Data.Foldable
+import Text.Printf ( printf )
 
 -- bytestring
 import qualified Data.ByteString.Char8 as BS
@@ -52,6 +55,7 @@ import Weeder
 import Weeder.Config
 
 
+-- | Parse command line arguments and into a 'Config' and run 'mainWithConfig'.
 main :: IO ()
 main = do
   configExpr <-
@@ -68,6 +72,10 @@ main = do
   Dhall.input config configExpr >>= mainWithConfig
 
 
+-- | Run Weeder in the current working directory with a given 'Config'.
+--
+-- This will recursively find all @.hie@ files in the current directory, perform
+-- analysis, and report all unused definitions according to the 'Config'.
 mainWithConfig :: Config -> IO ()
 mainWithConfig Config{ rootPatterns, typeClassRoots } = do
   hieFilePaths <-
@@ -138,11 +146,20 @@ mainWithConfig Config{ rootPatterns, typeClassRoots } = do
 
       putStrLn ""
       for_ snippet \( n, line ) ->
-        putStrLn $ replicate 8 ' ' <> show n <> " ┃ " <> BS.unpack line
+        putStrLn $
+             replicate 4 ' '
+          <> printf "% 4d" ( n :: Int )
+          <> " ┃ "
+          <> BS.unpack line
       putStrLn ""
 
-      putStrLn $ replicate 4 ' ' <> "Delete this definition or add ‘" <>
-              ( moduleNameString ( moduleName ( declModule d ) ) <> "." <> occNameString ( declOccName d ) ) <> "’ as a root to fix this error."
+      putStrLn $
+           replicate 4 ' '
+        <> "Delete this definition or add ‘"
+        <> moduleNameString ( moduleName ( declModule d ) )
+        <> "."
+        <> occNameString ( declOccName d )
+        <> "’ as a root to fix this error."
       putStrLn ""
       putStrLn ""
 

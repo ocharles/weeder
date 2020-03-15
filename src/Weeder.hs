@@ -10,20 +10,20 @@
 {-# language PackageImports #-}
 
 module Weeder
-  ( Declaration( Declaration, declModule, declOccName )
-  , Root(..)
-  , moduleSource
-  , allDeclarations
-  , modulePaths
+  ( -- * Analysis
+    Analysis(..)
   , analyseHieFile
-  , declarationSites
-  , declarationStableName
-  , dependencyGraph
   , emptyAnalysis
-  , implicitRoots
+  , allDeclarations
+
+    -- ** Reachability
+  , Root(..)
   , reachable
-  , nameToDeclaration
-  ) where
+
+    -- * Declarations
+  , Declaration(..)
+  )
+   where
 
 -- algebraic-graphs
 import Algebra.Graph ( Graph, edge, empty, overlay, vertex, vertexList )
@@ -91,7 +91,9 @@ import Control.Monad.Trans.Maybe ( runMaybeT )
 data Declaration =
   Declaration
     { declModule :: Module
+      -- ^ The module this declaration occurs in.
     , declOccName :: OccName
+      -- ^ The symbol name of a declaration.
     }
   deriving
     ( Eq, Ord )
@@ -117,6 +119,7 @@ declarationStableName Declaration { declModule, declOccName } =
     intercalate "$" [ namespace, moduleStableString declModule, "$", occNameString declOccName ]
 
 
+-- | All information maintained by 'analyseHieFile'.
 data Analysis =
   Analysis
     { dependencyGraph :: Graph Declaration
@@ -142,15 +145,17 @@ data Analysis =
     ( Generic )
 
 
+-- | The empty analysis - the result of analysing zero @.hie@ files.
 emptyAnalysis :: Analysis
 emptyAnalysis =
   Analysis empty mempty mempty mempty mempty mempty
 
 
+-- | A root for reachability analysis.
 data Root
-  = -- | A given declaration is a root
+  = -- | A given declaration is a root.
     DeclarationRoot Declaration
-  | -- | All exported declarations in a module are roots
+  | -- | All exported declarations in a module are roots.
     ModuleRoot Module
   deriving
     ( Eq, Ord )
@@ -174,6 +179,7 @@ allDeclarations Analysis{ dependencyGraph } =
   Set.fromList ( vertexList dependencyGraph )
 
 
+-- | Incrementally update 'Analysis' with information in a 'HieFile'.
 analyseHieFile :: MonadState Analysis m => HieFile -> m ()
 analyseHieFile HieFile{ hie_asts = HieASTs hieASTs, hie_exports, hie_module, hie_hs_file, hie_hs_src } = do
   #modulePaths %= Map.insert hie_module hie_hs_file
