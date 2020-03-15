@@ -36,22 +36,57 @@ cabal build all
 
 ## Calling Weeder
 
-When you call Weeder, you need to supply the directory containing `.hie` files -
-`.` is ussually sufficient, and at least one root - the starting point for
-alive-code analysis. If you're building an executable, the `main` function is a
-good starting point:
+To call Weeder, you first need to provide a configuration file. Weeder uses
+[Dhall](https://dhall-lang.org) as its configuration format, and configuration
+files have the type:
 
-``` shell
-weeder . --root 'main Main main'
+``` dhall
+{ roots : List Text, type-class-roots : Bool }
 ```
 
-You can also supply additional roots by supply `--root` multiple times. The
-syntax of the argument given to `--root` is either:
+`roots` is a list of regular expressions of symbols that are considered as
+alive. If you're building an executable, the pattern `^Main.main$` is a
+good starting point - specifying that `main` is a root.
 
-* `unit-id ModuleName symbolName`, where `symbolName` is the name of a variable
-  (not a type).
-* `unit-id ModuleName`. This form will add all exported symbols from the given
-  module. This can be useful if you are writing a library.
+`type-class-roots` configures whether or not Weeder should consider anything in
+a type class instance as a root. Weeder is currently unable to add dependency
+edges into type class instances, and without this flag may produce false
+positives. It's recommended to initially set this to `True`:
+
+``` dhall
+{ roots = [ "^Main.main$" ], type-class-roots = True }
+```
+
+Now invoke the `weeder` executable, and - if your project has weeds - you will
+see something like the following:
+
+``` shell
+$ weeder
+
+src/Dhall/TH.hs:187:1: error: toDeclaration is unused
+
+     185 ┃     -> HaskellType (Expr s a)
+     186 ┃     -> Q Dec
+     187 ┃ toDeclaration haskellTypes MultipleConstructors{..} = do
+     188 ┃     case code of
+     189 ┃         Union kts -> do
+
+    Delete this definition or add ‘Dhall.TH.toDeclaration’ as a root to fix this error.
+
+
+src/Dhall/TH.hs:106:1: error: toNestedHaskellType is unused
+
+     104 ┃     -- ^ Dhall expression to convert to a simple Haskell type
+     105 ┃     -> Q Type
+     106 ┃ toNestedHaskellType haskellTypes = loop
+     107 ┃   where
+     108 ┃     loop dhallType = case dhallType of
+
+    Delete this definition or add ‘Dhall.TH.toNestedHaskellType’ as a root to fix this error.
+```
+
+(Please note these warnings are just for demonstration and not necessarily weeds
+in the Dhall project).
 
 # Limitations
 
@@ -64,6 +99,9 @@ For this reason, Weeder adds all symbols referenced to from a type class
 instance to the root set, keeping this code alive. In short, this means Weeder
 might not detect dead code if it's used from a type class instance which is
 never actually needed.
+
+You can toggle whether Weeder consider type class instances as roots with the
+`type-class-roots` configuration option.
 
 ## Template Haskell
 
