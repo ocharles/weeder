@@ -3,6 +3,7 @@ license:       BSD3
 license-file:  LICENSE
 name:          weeder
 author:        Ollie Charles <ollie@ocharles.org.uk>
+maintainer:    Ollie Charles <ollie@ocharles.org.uk>
 build-type:    Simple
 version:       2.0.1
 copyright:     Neil Mitchell 2017-2020, Oliver Charles 2020
@@ -10,6 +11,7 @@ synopsis:      Detect dead code
 description:   Find declarations.
 homepage:      https://github.com/ocharles/weeder#readme
 bug-reports:   https://github.com/ocharles/weeder/issues
+category:      Development
 extra-doc-files:
     README.md
     CHANGELOG.md
