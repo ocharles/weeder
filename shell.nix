@@ -14,31 +14,14 @@ let
             )
             ( self:
               super:
-              { dhall =
-                  self.callPackage ./dhall.nix {};
-
-                weeder =
+              { weeder =
                   self.callCabal2nix
                     "weeder"
                     ( cleanSource ./. )
                     {};
-
-                cborg =
-                  self.callPackage ./cborg.nix {};
-
-                cborg-json =
-                  self.callPackage ./cborg-json.nix {};
-
-                prettyprinter =
-                  self.callPackage ./prettyprinter.nix {};
-
-                atomic-write =
-                  self.callPackage ./atomic-write.nix {};
               }
             );
       };
 
 in
 haskellPackages.weeder.env
-  # .overrideAttrs
-  # ( old: { buildInputs = old.buildInputs or [] ++ [ haskellPackages.ghcide ]; } )
