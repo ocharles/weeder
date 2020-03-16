@@ -34,6 +34,20 @@ cabal clean
 cabal build all
 ```
 
+If you use `stack`, add the following to your `stack.yaml`:
+
+``` yaml
+ghc-options:
+  "$locals": -fwrite-ide-info
+```
+
+and rebuild:
+
+``` shell
+stack clean
+stack build
+```
+
 ## Calling Weeder
 
 To call Weeder, you first need to provide a configuration file. Weeder uses
