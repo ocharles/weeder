@@ -18,8 +18,11 @@ code is reachable and which code is dead.
 
 ## Preparing Your Code for Weeder
 
-To use Weeder, you will need to generate `.hie` files from your source code. If
-you use Cabal, this is easily done by adding one line to your
+To use Weeder, you will need to generate `.hie` files from your source code. 
+
+### Cabal 
+
+If you use Cabal, this is easily done by adding one line to your
 `cabal.project.local` file:
 
 ``` cabal
@@ -33,6 +36,8 @@ Once this has been added, perform a full rebuild of your project:
 cabal clean
 cabal build all
 ```
+
+### Stack
 
 If you use `stack`, add the following to your `stack.yaml`:
 
