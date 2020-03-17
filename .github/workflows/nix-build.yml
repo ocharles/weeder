@@ -1,0 +1,14 @@
+name: "Test"
+on:
+  pull_request:
+  push:
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - uses: cachix/install-nix-action@v8
+    - uses: cachix/cachix-action@v5
+      with:
+        name: weeder
+        signingKey: 7Pn6R7tF95HC2INHlVsphnqzZNT8Zmx3GBoqtwIvvH5F1SYlqVocPnR8aDds2qw4aYbNFGpMhpyY8G79e2OXcg==

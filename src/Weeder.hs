@@ -204,6 +204,7 @@ analyseExport m = \case
 
   where
 
+    addExport :: MonadState Analysis m => Declaration -> m ()
     addExport d = #exports %= Map.insertWith (<>) m ( Set.singleton d )
 
 
