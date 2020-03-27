@@ -34,10 +34,10 @@ import System.Directory ( canonicalizePath, doesDirectoryExist, doesFileExist, d
 import System.FilePath ( isExtensionOf )
 
 -- ghc
-import HieBin ( HieFileResult( HieFileResult, hie_file_result ) )
-import HieBin ( readHieFile )
+import HieBin ( HieFileResult( HieFileResult, hie_file_result ), readHieFileWithVersion )
+import HieTypes ( HieFile, hieVersion )
 import Module ( moduleName, moduleNameString )
-import NameCache ( initNameCache )
+import NameCache ( initNameCache, NameCache )
 import OccName ( occNameString )
 import SrcLoc ( realSrcSpanStart, srcLocCol, srcLocLine )
 import UniqSupply ( mkSplitUniqSupply )
@@ -89,10 +89,8 @@ mainWithConfig Config{ rootPatterns, typeClassRoots } = do
   analysis <-
     flip execStateT emptyAnalysis do
       for_ hieFilePaths \hieFilePath -> do
-        ( HieFileResult{ hie_file_result }, _ ) <-
-          liftIO ( readHieFile nameCache hieFilePath )
-
-        analyseHieFile hie_file_result
+        hieFileResult <- liftIO ( readCompatibleHieFileOrExit nameCache hieFilePath )
+        analyseHieFile hieFileResult
 
   let
     roots =
@@ -203,3 +201,18 @@ getHieFilesIn path = do
 
     else
       return []
+
+
+-- | Read a .hie file, exiting if it's an incompatible version.
+readCompatibleHieFileOrExit :: NameCache -> FilePath -> IO HieFile
+readCompatibleHieFileOrExit nameCache path = do
+  res <- readHieFileWithVersion (\ (v, _) -> v == hieVersion) nameCache path
+  case res of
+    Right ( HieFileResult{ hie_file_result }, _ ) ->
+      return hie_file_result
+    Left ( v, _ghcVersion ) -> do
+      putStrLn $ "incompatible hie file: " <> path
+      putStrLn $ "    expected .hie file version " <> show hieVersion <> " but got " <> show v
+      putStrLn $ "    weeder must be built with the same GHC version"
+               <> " as the project it is used on"
+      exitFailure
