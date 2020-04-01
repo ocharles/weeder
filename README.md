@@ -55,7 +55,7 @@ stack build
 
 ## Calling Weeder
 
-To call Weeder, you first need to provide a configuration file. Weeder uses
+To call Weeder, you first need to provide a configuration file, `weeder.dhall`. Weeder uses
 [Dhall](https://dhall-lang.org) as its configuration format, and configuration
 files have the type:
 
