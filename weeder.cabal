@@ -37,6 +37,10 @@ library
     Weeder
     Weeder.Config
     Weeder.Main
+  autogen-modules:
+    Paths_weeder
+  other-modules:
+    Paths_weeder
   ghc-options: -Wall -fwarn-incomplete-uni-patterns
   default-language: Haskell2010
 

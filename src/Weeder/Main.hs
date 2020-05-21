@@ -14,6 +14,7 @@ import Control.Monad ( guard, unless )
 import Control.Monad.IO.Class ( liftIO )
 import Data.Bool
 import Data.Foldable
+import Data.Version ( showVersion )
 import Text.Printf ( printf )
 import System.Exit ( exitFailure )
 
@@ -54,6 +55,7 @@ import Control.Monad.Trans.State.Strict ( execStateT )
 -- weeder
 import Weeder
 import Weeder.Config
+import Paths_weeder (version)
 
 
 -- | Parse command line arguments and into a 'Config' and run 'mainWithConfig'.
@@ -61,16 +63,18 @@ main :: IO ()
 main = do
   configExpr <-
     execParser $
-      info
-        ( strOption
-            (    long "config"
-              <> help "A Dhall expression for Weeder's configuration. Can either be a file path (a Dhall import) or a literal Dhall expression."
-              <> value "./weeder.dhall"
-            )
-        )
-        mempty
+      info (optsP <**> helper <**> versionP) mempty
 
   Dhall.input config configExpr >>= mainWithConfig
+  where
+    optsP = strOption
+        ( long "config"
+            <> help "A Dhall expression for Weeder's configuration. Can either be a file path (a Dhall import) or a literal Dhall expression."
+            <> value "./weeder.dhall"
+        )
+
+    versionP = infoOption (showVersion version)
+        ( long "version" <> help "Show version" )
 
 
 -- | Run Weeder in the current working directory with a given 'Config'.
