@@ -118,8 +118,8 @@ mainWithConfig hieDirectories Config{ rootPatterns, typeClassRoots } = do
       Set.filter
         ( \d ->
             any
-              ( ( moduleNameString ( moduleName ( declModule d ) ) <> "." <> occNameString ( declOccName d ) ) =~ )
-              rootPatterns
+              ($ ( moduleNameString ( moduleName ( declModule d ) ) <> "." <> occNameString ( declOccName d ) ))
+              rootPatternPredicates
         )
         ( allDeclarations analysis )
 
@@ -186,6 +186,14 @@ mainWithConfig hieDirectories Config{ rootPatterns, typeClassRoots } = do
   putStrLn $ "Weeds detected: " <> show ( sum ( length <$> warnings ) )
 
   unless ( null warnings ) exitFailure
+  where
+    rootPatternPredicates :: [String -> Bool]
+    rootPatternPredicates =
+      [ case p of
+          ('!' : p') -> not . (=~ p')
+          _          -> (=~ p)
+      | p <- Set.toList rootPatterns
+      ]
 
 
 -- | Recursively search for .hie files in given directory
