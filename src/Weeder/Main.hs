@@ -25,6 +25,9 @@ import qualified Data.ByteString.Char8 as BS
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 
+-- text
+import qualified Data.Text as T
+
 -- dhall
 import qualified Dhall
 
@@ -61,17 +64,26 @@ import Paths_weeder (version)
 -- | Parse command line arguments and into a 'Config' and run 'mainWithConfig'.
 main :: IO ()
 main = do
-  configExpr <-
+  (configExpr, hieDirectories) <-
     execParser $
       info (optsP <**> helper <**> versionP) mempty
 
-  Dhall.input config configExpr >>= mainWithConfig
+  Dhall.input config configExpr >>= mainWithConfig hieDirectories
   where
-    optsP = strOption
-        ( long "config"
-            <> help "A Dhall expression for Weeder's configuration. Can either be a file path (a Dhall import) or a literal Dhall expression."
-            <> value "./weeder.dhall"
-        )
+    optsP = (,)
+        <$> strOption
+            ( long "config"
+                <> help "A Dhall expression for Weeder's configuration. Can either be a file path (a Dhall import) or a literal Dhall expression."
+                <> value "./weeder.dhall"
+                <> metavar "<weeder.dhall>"
+                <> showDefaultWith T.unpack
+            )
+        <*> many (
+            strOption
+                ( long "hie-directory"
+                    <> help "A directory to look for .hie files in. Maybe specified multiple times. Default ./."
+                )
+            )
 
     versionP = infoOption (showVersion version)
         ( long "version" <> help "Show version" )
@@ -81,10 +93,15 @@ main = do
 --
 -- This will recursively find all @.hie@ files in the current directory, perform
 -- analysis, and report all unused definitions according to the 'Config'.
-mainWithConfig :: Config -> IO ()
-mainWithConfig Config{ rootPatterns, typeClassRoots } = do
+mainWithConfig :: [FilePath] -> Config -> IO ()
+mainWithConfig hieDirectories Config{ rootPatterns, typeClassRoots } = do
   hieFilePaths <-
-    getHieFilesIn "./."
+    concat <$>
+      traverse getHieFilesIn
+        ( if null hieDirectories
+          then ["./."]
+          else hieDirectories
+        )
 
   nameCache <- do
     uniqSupply <- mkSplitUniqSupply 'z'
