@@ -1,5 +1,12 @@
 ## Changelog for Weeder
 
+### [`2.1.0`][v2.1.0] - *2020-06-30*
+
+- Support regex-tdfa ^>= 1.2 (#13)
+- Handle mismatched hie file version explicitly (fixes #8). (#16)
+- Implement --help and --version (#36)
+- Make search directory configurable (#37)
+- Support GHC 8.10
 
 ### [`2.0.1`][v2.0.1] - *2020-03-15*
 
