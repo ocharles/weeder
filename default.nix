@@ -4,7 +4,7 @@ let
   inherit ( lib ) cleanSource composeExtensions;
 
   haskellPackages =
-    haskell.packages.ghc881.override
+    haskell.packages.ghc882.override
       { overrides =
           composeExtensions
             ( haskell.lib.packagesFromDirectory
