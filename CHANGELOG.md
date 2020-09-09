@@ -1,6 +1,6 @@
 ## Changelog for Weeder
 
-### Unreleased
+### [`2.1.1`][v2.1.1] - *2020-09-09*
 
 - Support Dhall 1.34
 - Support optparse-applicative 0.16.0.0
