@@ -1,5 +1,10 @@
 ## Changelog for Weeder
 
+### Unreleased
+
+- Support Dhall 1.34
+- Support optparse-applicative 0.16.0.0
+
 ### [`2.1.0`][v2.1.0] - *2020-06-30*
 
 - Support regex-tdfa ^>= 1.2 (#13)
