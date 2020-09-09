@@ -1,5 +1,9 @@
 ## Changelog for Weeder
 
+### [`2.1.2`][v2.1.2] - *2020-09-09*
+
+- Correctly support optparse-applicative 0.16.0.0. While this was meant to be resolved 2.1.1, 2.1.1 only changed the version for the library and not the executable.
+
 ### [`2.1.1`][v2.1.1] - *2020-09-09*
 
 - Support Dhall 1.34
