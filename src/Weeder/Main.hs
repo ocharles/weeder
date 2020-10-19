@@ -10,7 +10,7 @@
 module Weeder.Main ( main, mainWithConfig ) where
 
 -- base
-import Control.Monad ( guard, unless )
+import Control.Monad ( guard, unless, when )
 import Control.Monad.IO.Class ( liftIO )
 import Data.Bool
 import Data.Foldable
@@ -39,7 +39,7 @@ import System.FilePath ( isExtensionOf )
 
 -- ghc
 import HieBin ( HieFileResult( HieFileResult, hie_file_result ), readHieFileWithVersion )
-import HieTypes ( HieFile, hieVersion )
+import HieTypes ( HieFile( hie_hs_file ), hieVersion )
 import Module ( moduleName, moduleNameString )
 import NameCache ( initNameCache, NameCache )
 import OccName ( occNameString )
@@ -114,7 +114,8 @@ mainWithConfig hieDirectories Config{ rootPatterns, typeClassRoots } = do
     flip execStateT emptyAnalysis do
       for_ hieFilePaths \hieFilePath -> do
         hieFileResult <- liftIO ( readCompatibleHieFileOrExit nameCache hieFilePath )
-        analyseHieFile hieFileResult
+        hsFileExists <- liftIO ( doesFileExist ( hie_hs_file hieFileResult ) )
+        when hsFileExists ( analyseHieFile hieFileResult )
 
   let
     roots =
