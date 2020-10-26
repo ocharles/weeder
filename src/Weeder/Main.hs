@@ -14,6 +14,8 @@ import Control.Monad ( guard, unless, when )
 import Control.Monad.IO.Class ( liftIO )
 import Data.Bool
 import Data.Foldable
+import Data.List ( isSuffixOf )
+import Data.Maybe ( isJust )
 import Data.Version ( showVersion )
 import Text.Printf ( printf )
 import System.Exit ( exitFailure )
@@ -106,6 +108,8 @@ mainWithConfig hieDirectories Config{ rootPatterns, typeClassRoots } = do
           else hieDirectories
         )
 
+  hsFilePaths <- concat <$> traverse getHsFilesIn ["./."]
+
   nameCache <- do
     uniqSupply <- mkSplitUniqSupply 'z'
     return ( initNameCache uniqSupply [] )
@@ -114,7 +118,7 @@ mainWithConfig hieDirectories Config{ rootPatterns, typeClassRoots } = do
     flip execStateT emptyAnalysis do
       for_ hieFilePaths \hieFilePath -> do
         hieFileResult <- liftIO ( readCompatibleHieFileOrExit nameCache hieFilePath )
-        hsFileExists <- liftIO ( doesFileExist ( hie_hs_file hieFileResult ) )
+        let hsFileExists = isJust ( find ( hie_hs_file hieFileResult `isSuffixOf` ) hsFilePaths )
         when hsFileExists ( analyseHieFile hieFileResult )
 
   let
@@ -194,7 +198,17 @@ mainWithConfig hieDirectories Config{ rootPatterns, typeClassRoots } = do
 
 -- | Recursively search for .hie files in given directory
 getHieFilesIn :: FilePath -> IO [FilePath]
-getHieFilesIn path = do
+getHieFilesIn = getFilesIn "hie"
+
+
+-- | Recursively search for .hs files in given directory
+getHsFilesIn :: FilePath -> IO [FilePath]
+getHsFilesIn = getFilesIn "hs"
+
+
+-- | Recursively search for files in given directory by extension
+getFilesIn :: String -> FilePath -> IO [FilePath]
+getFilesIn ext path = do
   exists <-
     doesPathExist path
 
@@ -203,7 +217,7 @@ getHieFilesIn path = do
       isFile <-
         doesFileExist path
 
-      if isFile && "hie" `isExtensionOf` path
+      if isFile && ext `isExtensionOf` path
         then do
           path' <-
             canonicalizePath path
@@ -219,7 +233,7 @@ getHieFilesIn path = do
               cnts <-
                 listDirectory path
 
-              withCurrentDirectory path ( foldMap getHieFilesIn cnts )
+              withCurrentDirectory path ( foldMap ( getFilesIn ext ) cnts )
 
             else
               return []
