@@ -5,7 +5,7 @@ name:          weeder
 author:        Ollie Charles <ollie@ocharles.org.uk>
 maintainer:    Ollie Charles <ollie@ocharles.org.uk>
 build-type:    Simple
-version:       2.1.2
+version:       2.1.3
 copyright:     Neil Mitchell 2017-2020, Oliver Charles 2020
 synopsis:      Detect dead code
 description:   Find declarations.

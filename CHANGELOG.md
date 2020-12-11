@@ -1,6 +1,6 @@
 ## Changelog for Weeder
 
-### Unreleased
+### [`2.1.3`][v2.1.3] - *2020-12-11*
 
 - Support `dhall-1.35`, `dhall-1.36` and `dhall-1.37`.
 - Support `bytestring-0.11`.
