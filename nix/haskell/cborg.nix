@@ -5,8 +5,8 @@
 }:
 mkDerivation {
   pname = "cborg";
-  version = "0.2.2.1";
-  sha256 = "ba920d368892fe14e048cd6ac4270ce4ea1aea0fb6a4998c5c97fe106e6c6183";
+  version = "0.2.4.0";
+  sha256 = "34ae38afffa078f8d394325937d0e15431069d4428a7449f6af9d2d16539367f";
   libraryHaskellDepends = [
     array base bytestring containers deepseq ghc-prim half integer-gmp
     primitive text
