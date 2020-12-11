@@ -46,9 +46,6 @@ import OccName ( occNameString )
 import SrcLoc ( realSrcSpanStart, srcLocCol, srcLocLine )
 import UniqSupply ( mkSplitUniqSupply )
 
--- regex-tdfa
-import Text.Regex.TDFA ( (=~) )
-
 -- optparse-applicative
 import Options.Applicative
 
@@ -94,7 +91,7 @@ main = do
 -- This will recursively find all @.hie@ files in the current directory, perform
 -- analysis, and report all unused definitions according to the 'Config'.
 mainWithConfig :: [FilePath] -> Config -> IO ()
-mainWithConfig hieDirectories Config{ rootPatterns, typeClassRoots } = do
+mainWithConfig hieDirectories Config{ rootPatterns, typeClassRoots, ignore } = do
   hieFilePaths <-
     concat <$>
       traverse getHieFilesIn
@@ -116,11 +113,7 @@ mainWithConfig hieDirectories Config{ rootPatterns, typeClassRoots } = do
   let
     roots =
       Set.filter
-        ( \d ->
-            any
-              ( ( moduleNameString ( moduleName ( declModule d ) ) <> "." <> occNameString ( declOccName d ) ) =~ )
-              rootPatterns
-        )
+        ( \d -> any ( declarationMatchesRegularExpression d ) rootPatterns )
         ( allDeclarations analysis )
 
     reachableSet =
@@ -142,6 +135,8 @@ mainWithConfig hieDirectories Config{ rootPatterns, typeClassRoots } = do
               spans <- Map.lookup d ( declarationSites analysis )
               guard $ not $ null spans
 
+              guard $ all (not . declarationMatchesRegularExpression d) ignore
+
               let snippets = do
                     srcSpan <- Set.toList spans
 
@@ -155,7 +150,7 @@ mainWithConfig hieDirectories Config{ rootPatterns, typeClassRoots } = do
         dead
 
   for_ ( Map.toList warnings ) \( path, declarations ) ->
-    for_ declarations \( ( start, snippet ), d ) -> do
+    for_ (declarations) \( ( start, snippet ), d ) -> do
       putStrLn $
         unwords
           [ foldMap ( <> ":" ) [ path, show ( srcLocLine start ), show ( srcLocCol start ) ]
