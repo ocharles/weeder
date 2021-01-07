@@ -150,7 +150,7 @@ mainWithConfig hieDirectories Config{ rootPatterns, typeClassRoots, ignore } = d
         dead
 
   for_ ( Map.toList warnings ) \( path, declarations ) ->
-    for_ (declarations) \( ( start, snippet ), d ) -> do
+    for_ declarations \( ( start, snippet ), d ) -> do
       putStrLn $
         unwords
           [ foldMap ( <> ":" ) [ path, show ( srcLocLine start ), show ( srcLocCol start ) ]
