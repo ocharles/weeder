@@ -85,7 +85,10 @@ main = do
                 )
             )
 
-    versionP = infoOption (showVersion version)
+    versionP = infoOption ( "weeder version "
+                            <> showVersion version
+                            <> "\nhie version "
+                            <> show hieVersion )
         ( long "version" <> help "Show version" )
 
 
