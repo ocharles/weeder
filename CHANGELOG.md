@@ -1,5 +1,10 @@
 ## Changelog for Weeder
 
+### [`2.1.3`][v2.1.3] - *2020-12-11*
+
+- Support `dhall-1.35`, `dhall-1.36` and `dhall-1.37`.
+- Support `bytestring-0.11`.
+
 ### [`2.1.2`][v2.1.2] - *2020-09-09*
 
 - Correctly support optparse-applicative 0.16.0.0. While this was meant to be resolved 2.1.1, 2.1.1 only changed the version for the library and not the executable.
