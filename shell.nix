@@ -1,27 +1,10 @@
-with ( import <nixpkgs> {} );
-
 let
-  inherit ( lib ) cleanSource composeExtensions;
-
-  haskellPackages =
-    haskell.packages.ghc881.override
-      { overrides =
-          composeExtensions
-            ( haskell.lib.packagesFromDirectory
-                { directory =
-                    ./nix/haskell;
-                }
-            )
-            ( self:
-              super:
-              { weeder =
-                  self.callCabal2nix
-                    "weeder"
-                    ( cleanSource ./. )
-                    {};
-              }
-            );
-      };
-
+  hsPkgs = import ./default.nix {};
 in
-haskellPackages.weeder.env
+hsPkgs.shellFor {
+  withHoogle = true;
+
+  tools = { cabal = "3.2.0.0"; haskell-language-server = "latest"; };
+
+  exactDeps = true;
+}
