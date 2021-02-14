@@ -85,7 +85,10 @@ main = do
                 )
             )
 
-    versionP = infoOption (showVersion version)
+    versionP = infoOption ( "weeder version "
+                            <> showVersion version
+                            <> "\nhie version "
+                            <> show hieVersion )
         ( long "version" <> help "Show version" )
 
 
@@ -233,7 +236,10 @@ readCompatibleHieFileOrExit nameCache path = do
       return hie_file_result
     Left ( v, _ghcVersion ) -> do
       putStrLn $ "incompatible hie file: " <> path
-      putStrLn $ "    expected .hie file version " <> show hieVersion <> " but got " <> show v
+      putStrLn $ "    this version of weeder was compiled with GHC version "
+               <> show hieVersion
+      putStrLn $ "    the hie files in this project were generated with GHC version "
+               <> show v
       putStrLn $ "    weeder must be built with the same GHC version"
                <> " as the project it is used on"
       exitFailure
