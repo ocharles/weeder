@@ -1,27 +1,20 @@
-with ( import <nixpkgs> {} );
+let 
+  haskellNix = import (import ./nix/sources.nix)."haskell.nix" {};
 
-let
-  inherit ( lib ) cleanSource composeExtensions;
+  nixpkgsSrc = haskellNix.sources.nixpkgs-2009;
 
-  haskellPackages =
-    haskell.packages.ghc882.override
-      { overrides =
-          composeExtensions
-            ( haskell.lib.packagesFromDirectory
-                { directory =
-                    ./nix/haskell;
-                }
-            )
-            ( self:
-              super:
-              { weeder =
-                  self.callCabal2nix
-                    "weeder"
-                    ( cleanSource ./. )
-                    {};
-              }
-            );
-      };
+  nixpkgsArgs = haskellNix.nixpkgsArgs;
 
-in
-haskellPackages.weeder
+  compiler-nix-name = "ghc884";
+
+  pkgs = import nixpkgsSrc nixpkgsArgs;
+
+in 
+pkgs.haskell-nix.project {
+  inherit compiler-nix-name;
+
+  src = pkgs.haskell-nix.haskellLib.cleanGit {
+    name = "weeder";
+    src = ./.;
+  };
+}
