@@ -206,7 +206,7 @@ getHsFilesIn :: FilePath -> IO [FilePath]
 getHsFilesIn = getFilesIn "hs"
 
 
--- | Recursively search for files in given directory by extension
+-- | Recursively search for files in the given directory by extension
 getFilesIn :: String -> FilePath -> IO [FilePath]
 getFilesIn ext path = do
   exists <-
