@@ -108,7 +108,7 @@ mainWithConfig hieDirectories Config{ rootPatterns, typeClassRoots } = do
           else hieDirectories
         )
 
-  hsFilePaths <- concat <$> traverse getHsFilesIn ["./."]
+  hsFilePaths <- getHsFiles
 
   nameCache <- do
     uniqSupply <- mkSplitUniqSupply 'z'
@@ -201,9 +201,9 @@ getHieFilesIn :: FilePath -> IO [FilePath]
 getHieFilesIn = getFilesIn "hie"
 
 
--- | Recursively search for .hs files in given directory
-getHsFilesIn :: FilePath -> IO [FilePath]
-getHsFilesIn = getFilesIn "hs"
+-- | Recursively search for .hs files in the current directory
+getHsFiles :: IO [FilePath]
+getHsFiles = getFilesIn "hs" "./."
 
 
 -- | Recursively search for files in the given directory by extension
