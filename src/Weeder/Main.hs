@@ -15,7 +15,6 @@ import Control.Monad.IO.Class ( liftIO )
 import Data.Bool
 import Data.Foldable
 import Data.List ( isSuffixOf )
-import Data.Maybe ( isJust )
 import Data.Version ( showVersion )
 import Text.Printf ( printf )
 import System.Exit ( exitFailure )
@@ -118,7 +117,7 @@ mainWithConfig hieDirectories Config{ rootPatterns, typeClassRoots } = do
     flip execStateT emptyAnalysis do
       for_ hieFilePaths \hieFilePath -> do
         hieFileResult <- liftIO ( readCompatibleHieFileOrExit nameCache hieFilePath )
-        let hsFileExists = isJust ( find ( hie_hs_file hieFileResult `isSuffixOf` ) hsFilePaths )
+        let hsFileExists = any ( hie_hs_file hieFileResult `isSuffixOf` ) hsFilePaths
         when hsFileExists ( analyseHieFile hieFileResult )
 
   let
