@@ -43,7 +43,7 @@ import HieTypes ( HieFile, hieVersion )
 import Module ( moduleName, moduleNameString )
 import NameCache ( initNameCache, NameCache )
 import OccName ( occNameString )
-import SrcLoc ( realSrcSpanStart, srcLocCol, srcLocLine )
+import SrcLoc ( RealSrcLoc, realSrcSpanStart, srcLocCol, srcLocLine )
 import UniqSupply ( mkSplitUniqSupply )
 
 -- regex-tdfa
@@ -64,13 +64,13 @@ import Paths_weeder (version)
 -- | Parse command line arguments and into a 'Config' and run 'mainWithConfig'.
 main :: IO ()
 main = do
-  (configExpr, hieDirectories) <-
+  (configExpr, hieDirectories, verbosity) <-
     execParser $
       info (optsP <**> helper <**> versionP) mempty
 
-  Dhall.input config configExpr >>= mainWithConfig hieDirectories
+  Dhall.input config configExpr >>= mainWithConfig hieDirectories verbosity
   where
-    optsP = (,)
+    optsP = (,,)
         <$> strOption
             ( long "config"
                 <> help "A Dhall expression for Weeder's configuration. Can either be a file path (a Dhall import) or a literal Dhall expression."
@@ -84,6 +84,10 @@ main = do
                     <> help "A directory to look for .hie files in. Maybe specified multiple times. Default ./."
                 )
             )
+        <*> flag Verbose Concise (
+            long "concise"
+              <> help "Print weeds in a more concise format."
+            )
 
     versionP = infoOption ( "weeder version "
                             <> showVersion version
@@ -91,13 +95,16 @@ main = do
                             <> show hieVersion )
         ( long "version" <> help "Show version" )
 
+data Verbosity = Concise | Verbose
+  deriving (Eq, Show)
+
 
 -- | Run Weeder in the current working directory with a given 'Config'.
 --
 -- This will recursively find all @.hie@ files in the current directory, perform
 -- analysis, and report all unused definitions according to the 'Config'.
-mainWithConfig :: [FilePath] -> Config -> IO ()
-mainWithConfig hieDirectories Config{ rootPatterns, typeClassRoots } = do
+mainWithConfig :: [FilePath] -> Verbosity -> Config -> IO ()
+mainWithConfig hieDirectories verbosity Config{ rootPatterns, typeClassRoots } = do
   hieFilePaths <-
     concat <$>
       traverse getHieFilesIn
@@ -158,37 +165,37 @@ mainWithConfig hieDirectories Config{ rootPatterns, typeClassRoots } = do
         dead
 
   for_ ( Map.toList warnings ) \( path, declarations ) ->
-    for_ declarations \( ( start, snippet ), d ) -> do
-      putStrLn $
-        unwords
-          [ foldMap ( <> ":" ) [ path, show ( srcLocLine start ), show ( srcLocCol start ) ]
-          , "error:"
-          , occNameString ( declOccName d )
-          , "is unused"
-          ]
-
-      putStrLn ""
-      for_ snippet \( n, line ) ->
-        putStrLn $
-             replicate 4 ' '
-          <> printf "% 4d" ( n :: Int )
-          <> " ┃ "
-          <> BS.unpack line
-      putStrLn ""
-
-      putStrLn $
-           replicate 4 ' '
-        <> "Delete this definition or add ‘"
-        <> moduleNameString ( moduleName ( declModule d ) )
-        <> "."
-        <> occNameString ( declOccName d )
-        <> "’ as a root to fix this error."
-      putStrLn ""
-      putStrLn ""
-
-  putStrLn $ "Weeds detected: " <> show ( sum ( length <$> warnings ) )
+    for_ declarations \( ( start, snippet ), d ) ->
+      putStrLn $ showWeed path start snippet d verbosity
+  case verbosity of
+    Concise -> return () -- wc will show weed count for Concise
+    Verbose -> putStrLn $ "Weeds detected: " <> show ( sum ( length <$> warnings ) )
 
   unless ( null warnings ) exitFailure
+
+showWeed :: FilePath -> RealSrcLoc -> [(Int, BS.ByteString)]
+  -> Declaration -> Verbosity -> String
+showWeed path start snippet d = \case
+  Concise -> unwords [ filename, occNameString ( declOccName d ) ]
+  Verbose -> unlines $
+    [ unwords [ filename, "error:", occNameString ( declOccName d ), "is unused" ]
+    , ""
+    ] ++
+    [ replicate 4 ' ' <> printf "% 4d" n <> " ┃ " <> BS.unpack line
+    | (n, line) <- snippet
+    ] ++
+    [ ""
+    , replicate 4 ' '
+      <> "Delete this definition or add ‘"
+      <> moduleNameString ( moduleName ( declModule d ) )
+      <> "."
+      <> occNameString ( declOccName d )
+      <> "’ as a root to fix this error."
+    , ""
+    ]
+  where
+  filename = foldMap ( <> ":" )
+    [ path, show ( srcLocLine start ), show ( srcLocCol start ) ]
 
 
 -- | Recursively search for .hie files in given directory
