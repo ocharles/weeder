@@ -15,11 +15,7 @@ import Control.Monad.IO.Class ( liftIO )
 import Data.Bool
 import Data.Foldable
 import Data.Version ( showVersion )
-import Text.Printf ( printf )
 import System.Exit ( exitFailure )
-
--- bytestring
-import qualified Data.ByteString.Char8 as BS
 
 -- containers
 import qualified Data.Map.Strict as Map
@@ -64,13 +60,13 @@ import Paths_weeder (version)
 -- | Parse command line arguments and into a 'Config' and run 'mainWithConfig'.
 main :: IO ()
 main = do
-  (configExpr, hieDirectories, verbosity) <-
+  (configExpr, hieDirectories) <-
     execParser $
       info (optsP <**> helper <**> versionP) mempty
 
-  Dhall.input config configExpr >>= mainWithConfig hieDirectories verbosity
+  Dhall.input config configExpr >>= mainWithConfig hieDirectories
   where
-    optsP = (,,)
+    optsP = (,)
         <$> strOption
             ( long "config"
                 <> help "A Dhall expression for Weeder's configuration. Can either be a file path (a Dhall import) or a literal Dhall expression."
@@ -84,10 +80,6 @@ main = do
                     <> help "A directory to look for .hie files in. Maybe specified multiple times. Default ./."
                 )
             )
-        <*> flag Verbose Concise (
-            long "concise"
-              <> help "Print weeds in a more concise format."
-            )
 
     versionP = infoOption ( "weeder version "
                             <> showVersion version
@@ -95,16 +87,13 @@ main = do
                             <> show hieVersion )
         ( long "version" <> help "Show version" )
 
-data Verbosity = Concise | Verbose
-  deriving (Eq, Show)
-
 
 -- | Run Weeder in the current working directory with a given 'Config'.
 --
 -- This will recursively find all @.hie@ files in the current directory, perform
 -- analysis, and report all unused definitions according to the 'Config'.
-mainWithConfig :: [FilePath] -> Verbosity -> Config -> IO ()
-mainWithConfig hieDirectories verbosity Config{ rootPatterns, typeClassRoots } = do
+mainWithConfig :: [FilePath] -> Config -> IO ()
+mainWithConfig hieDirectories Config{ rootPatterns, typeClassRoots } = do
   hieFilePaths <-
     concat <$>
       traverse getHieFilesIn
@@ -147,52 +136,21 @@ mainWithConfig hieDirectories verbosity Config{ rootPatterns, typeClassRoots } =
         ( \d ->
             fold $ do
               moduleFilePath <- Map.lookup ( declModule d ) ( modulePaths analysis )
-              moduleSource <- Map.lookup ( declModule d ) ( moduleSource analysis )
-
               spans <- Map.lookup d ( declarationSites analysis )
               guard $ not $ null spans
-
-              let snippets = do
-                    srcSpan <- Set.toList spans
-
-                    let start = realSrcSpanStart srcSpan
-                    let firstLine = max 0 ( srcLocLine start - 3 )
-
-                    return ( start, take 5 $ drop firstLine $ zip [1..] $ BS.lines moduleSource )
-
-              return [ Map.singleton moduleFilePath ( liftA2 (,) snippets (pure d) ) ]
+              let starts = map realSrcSpanStart $ Set.toList spans
+              return [ Map.singleton moduleFilePath ( liftA2 (,) starts (pure d) ) ]
         )
         dead
 
   for_ ( Map.toList warnings ) \( path, declarations ) ->
-    for_ declarations \( ( start, snippet ), d ) ->
-      putStrLn $ showWeed path start snippet d verbosity
-  case verbosity of
-    Concise -> return () -- wc will show weed count for Concise
-    Verbose -> putStrLn $ "Weeds detected: " <> show ( sum ( length <$> warnings ) )
+    for_ declarations \( start, d ) ->
+      putStrLn $ showWeed path start d
 
   unless ( null warnings ) exitFailure
 
-showWeed :: FilePath -> RealSrcLoc -> [(Int, BS.ByteString)]
-  -> Declaration -> Verbosity -> String
-showWeed path start snippet d = \case
-  Concise -> unwords [ filename, occNameString ( declOccName d ) ]
-  Verbose -> unlines $
-    [ unwords [ filename, "error:", occNameString ( declOccName d ), "is unused" ]
-    , ""
-    ] ++
-    [ replicate 4 ' ' <> printf "% 4d" n <> " ┃ " <> BS.unpack line
-    | (n, line) <- snippet
-    ] ++
-    [ ""
-    , replicate 4 ' '
-      <> "Delete this definition or add ‘"
-      <> moduleNameString ( moduleName ( declModule d ) )
-      <> "."
-      <> occNameString ( declOccName d )
-      <> "’ as a root to fix this error."
-    , ""
-    ]
+showWeed :: FilePath -> RealSrcLoc -> Declaration -> String
+showWeed path start d = unwords [ filename, occNameString ( declOccName d ) ]
   where
   filename = foldMap ( <> ":" )
     [ path, show ( srcLocLine start ), show ( srcLocCol start ) ]
