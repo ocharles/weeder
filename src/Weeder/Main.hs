@@ -39,7 +39,7 @@ import HieTypes ( HieFile, hieVersion )
 import Module ( moduleName, moduleNameString )
 import NameCache ( initNameCache, NameCache )
 import OccName ( occNameString )
-import SrcLoc ( RealSrcLoc, realSrcSpanStart, srcLocCol, srcLocLine )
+import SrcLoc ( RealSrcLoc, realSrcSpanStart, srcLocLine )
 import UniqSupply ( mkSplitUniqSupply )
 
 -- regex-tdfa
@@ -150,10 +150,9 @@ mainWithConfig hieDirectories Config{ rootPatterns, typeClassRoots } = do
   unless ( null warnings ) exitFailure
 
 showWeed :: FilePath -> RealSrcLoc -> Declaration -> String
-showWeed path start d = unwords [ filename, occNameString ( declOccName d ) ]
-  where
-  filename = foldMap ( <> ":" )
-    [ path, show ( srcLocLine start ), show ( srcLocCol start ) ]
+showWeed path start d =
+  path <> ":" <> show ( srcLocLine start ) <> ": "
+    <> occNameString ( declOccName d)
 
 
 -- | Recursively search for .hie files in given directory
