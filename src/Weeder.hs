@@ -22,6 +22,7 @@ module Weeder
 
     -- * Declarations
   , Declaration(..)
+  , declarationMatchesRegularExpression
   )
    where
 
@@ -65,7 +66,7 @@ import HieTypes
   , NodeInfo( NodeInfo, nodeIdentifiers, nodeAnnotations )
   , Scope( ModuleScope )
   )
-import Module ( Module, moduleStableString )
+import Module ( Module, moduleName, moduleNameString, moduleStableString )
 import Name ( Name, nameModule_maybe, nameOccName )
 import OccName
   ( OccName
@@ -83,6 +84,9 @@ import Control.Lens ( (%=) )
 
 -- mtl
 import Control.Monad.State.Class ( MonadState )
+
+-- regex-tdfa
+import Text.Regex.TDFA ( (=~) )
 
 -- transformers
 import Control.Monad.Trans.Maybe ( runMaybeT )
@@ -117,6 +121,11 @@ declarationStableName Declaration { declModule, declOccName } =
 
     in
     intercalate "$" [ namespace, moduleStableString declModule, "$", occNameString declOccName ]
+
+
+declarationMatchesRegularExpression :: Declaration -> String -> Bool
+declarationMatchesRegularExpression d p =
+  ( moduleNameString ( moduleName ( declModule d ) ) <> "." <> occNameString ( declOccName d ) ) =~ p
 
 
 -- | All information maintained by 'analyseHieFile'.
