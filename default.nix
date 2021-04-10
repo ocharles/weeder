@@ -1,11 +1,10 @@
+{ compiler-nix-name ? "ghc884" }:
 let 
   haskellNix = import (import ./nix/sources.nix)."haskell.nix" {};
 
   nixpkgsSrc = haskellNix.sources.nixpkgs-2009;
 
   nixpkgsArgs = haskellNix.nixpkgsArgs;
-
-  compiler-nix-name = "ghc884";
 
   pkgs = import nixpkgsSrc nixpkgsArgs;
 
