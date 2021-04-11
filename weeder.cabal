@@ -48,7 +48,7 @@ library
 
 executable weeder
   build-depends:
-    , base                 ^>= 4.13.0.0 || ^>= 4.14
+    , base                 ^>= 4.13.0.0 || ^>= 4.14 || ^>= 4.15
     , bytestring           ^>= 0.10.9.0 || ^>= 0.11.0.0
     , containers           ^>= 0.6.2.1
     , directory            ^>= 1.3.3.2
