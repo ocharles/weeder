@@ -60,19 +60,25 @@ import Paths_weeder (version)
 -- | Parse command line arguments and into a 'Config' and run 'mainWithConfig'.
 main :: IO ()
 main = do
-  (configExpr, hieDirectories) <-
+  (configExpr, hieExt, hieDirectories) <-
     execParser $
       info (optsP <**> helper <**> versionP) mempty
 
-  Dhall.input config configExpr >>= mainWithConfig hieDirectories
+  Dhall.input config configExpr >>= mainWithConfig hieExt hieDirectories
   where
-    optsP = (,)
+    optsP = (,,)
         <$> strOption
             ( long "config"
                 <> help "A Dhall expression for Weeder's configuration. Can either be a file path (a Dhall import) or a literal Dhall expression."
                 <> value "./weeder.dhall"
                 <> metavar "<weeder.dhall>"
                 <> showDefaultWith T.unpack
+            )
+        <*> strOption
+            ( long "hie-extension"
+                <> value ".hie"
+                <> help "Extension of HIE files"
+                <> showDefault
             )
         <*> many (
             strOption
@@ -90,13 +96,13 @@ main = do
 
 -- | Run Weeder in the current working directory with a given 'Config'.
 --
--- This will recursively find all @.hie@ files in the current directory, perform
+-- This will recursively find all files with the given extension in the given directories, perform
 -- analysis, and report all unused definitions according to the 'Config'.
-mainWithConfig :: [FilePath] -> Config -> IO ()
-mainWithConfig hieDirectories Config{ rootPatterns, typeClassRoots } = do
+mainWithConfig :: String -> [FilePath] -> Config -> IO ()
+mainWithConfig hieExt hieDirectories Config{ rootPatterns, typeClassRoots } = do
   hieFilePaths <-
     concat <$>
-      traverse getHieFilesIn
+      traverse ( getHieFilesIn hieExt )
         ( if null hieDirectories
           then ["./."]
           else hieDirectories
@@ -155,9 +161,14 @@ showWeed path start d =
     <> occNameString ( declOccName d)
 
 
--- | Recursively search for .hie files in given directory
-getHieFilesIn :: FilePath -> IO [FilePath]
-getHieFilesIn path = do
+-- | Recursively search for files with the given extension in given directory
+getHieFilesIn
+  :: String
+  -- ^ Only files with this extension are considered
+  -> FilePath
+  -- ^ Directory to look in
+  -> IO [FilePath]
+getHieFilesIn ext path = do
   exists <-
     doesPathExist path
 
@@ -166,7 +177,7 @@ getHieFilesIn path = do
       isFile <-
         doesFileExist path
 
-      if isFile && "hie" `isExtensionOf` path
+      if isFile && ext `isExtensionOf` path
         then do
           path' <-
             canonicalizePath path
@@ -182,7 +193,7 @@ getHieFilesIn path = do
               cnts <-
                 listDirectory path
 
-              withCurrentDirectory path ( foldMap getHieFilesIn cnts )
+              withCurrentDirectory path ( foldMap ( getHieFilesIn ext ) cnts )
 
             else
               return []
