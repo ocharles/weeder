@@ -37,9 +37,6 @@ import Data.Monoid ( First( First ) )
 import GHC.Generics ( Generic )
 import Prelude hiding ( span )
 
--- bytestring
-import Data.ByteString ( ByteString )
-
 -- containers
 import Data.Map.Strict ( Map )
 import qualified Data.Map.Strict as Map
@@ -59,7 +56,7 @@ import HieTypes
   , DeclType( DataDec, ClassDec, ConDec )
   , HieAST( Node, nodeInfo, nodeChildren, nodeSpan )
   , HieASTs( HieASTs )
-  , HieFile( HieFile, hie_asts, hie_exports, hie_module, hie_hs_file, hie_hs_src )
+  , HieFile( HieFile, hie_asts, hie_exports, hie_module, hie_hs_file )
   , IdentifierDetails( IdentifierDetails, identInfo )
   , NodeInfo( NodeInfo, nodeIdentifiers, nodeAnnotations )
   , Scope( ModuleScope )
@@ -138,7 +135,6 @@ data Analysis =
       -- ^ All exports for a given module.
     , modulePaths :: Map Module FilePath
       -- ^ A map from modules to the file path to the .hs file defining them.
-    , moduleSource :: Map Module ByteString
     }
   deriving
     ( Generic )
@@ -146,8 +142,7 @@ data Analysis =
 
 -- | The empty analysis - the result of analysing zero @.hie@ files.
 emptyAnalysis :: Analysis
-emptyAnalysis =
-  Analysis empty mempty mempty mempty mempty mempty
+emptyAnalysis = Analysis empty mempty mempty mempty mempty
 
 
 -- | A root for reachability analysis.
@@ -180,9 +175,8 @@ allDeclarations Analysis{ dependencyGraph } =
 
 -- | Incrementally update 'Analysis' with information in a 'HieFile'.
 analyseHieFile :: MonadState Analysis m => HieFile -> m ()
-analyseHieFile HieFile{ hie_asts = HieASTs hieASTs, hie_exports, hie_module, hie_hs_file, hie_hs_src } = do
+analyseHieFile HieFile{ hie_asts = HieASTs hieASTs, hie_exports, hie_module, hie_hs_file } = do
   #modulePaths %= Map.insert hie_module hie_hs_file
-  #moduleSource %= Map.insert hie_module hie_hs_src
 
   for_ hieASTs \ast -> do
     addAllDeclarations ast
