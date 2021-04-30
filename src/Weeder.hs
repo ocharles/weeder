@@ -7,7 +7,6 @@
 {-# language NoImplicitPrelude #-}
 {-# language OverloadedLabels #-}
 {-# language OverloadedStrings #-}
-{-# language PackageImports #-}
 
 module Weeder
   ( -- * Analysis
@@ -274,8 +273,7 @@ analyseBinding n@Node{ nodeSpan, nodeInfo = NodeInfo{ nodeAnnotations } } = do
   for_ ( findDeclarations n ) \d -> do
     define d nodeSpan
 
-    for_ ( uses n ) \use ->
-      addDependency d use
+    for_ ( uses n ) $ addDependency d
 
 
 analyseRewriteRule :: ( Alternative m, MonadState Analysis m ) => HieAST a -> m ()
@@ -296,8 +294,8 @@ analyseClassDeclaration :: ( Alternative m, MonadState Analysis m ) => HieAST a 
 analyseClassDeclaration n@Node{ nodeInfo = NodeInfo{ nodeAnnotations } } = do
   guard ( ( "ClassDecl", "TyClDecl" ) `Set.member` nodeAnnotations )
 
-  for_ ( findIdentifiers isClassDeclaration n ) \d ->
-    for_ ( findIdentifiers ( const True ) n ) ( addDependency d )
+  for_ ( findIdentifiers isClassDeclaration n ) $
+    for_ ( findIdentifiers ( const True ) n ) . addDependency
 
   where
 
