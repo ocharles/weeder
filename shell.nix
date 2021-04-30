@@ -1,5 +1,5 @@
 let
-  hsPkgs = import ./default.nix {};
+  hsPkgs = import ./default.nix;
 in
 hsPkgs.shellFor {
   withHoogle = true;
