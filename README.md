@@ -66,7 +66,7 @@ files have the type:
 `roots` is a list of regular expressions of symbols that are considered as
 alive. If you're building an executable, the pattern `^Main.main$` is a
 good starting point - specifying that `main` is a root. Weeder currently doesn't
-add all exported functions a roots automatically but in many cases `main` from a
+add all exported functions as roots automatically but in many cases `main` from a
 test suite could be a good workaround for that
 
 `type-class-roots` configures whether or not Weeder should consider anything in
