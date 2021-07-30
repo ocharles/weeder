@@ -246,6 +246,7 @@ topLevelAnalysis n@Node{ nodeChildren } = do
           , analyseRewriteRule n
           , analyseClassDeclaration n
           , analyseDataDeclaration n
+          , analysePatternSynonyms n
           ]
       )
 
@@ -337,6 +338,11 @@ constructors n@Node { nodeChildren, nodeInfo = NodeInfo{ nodeAnnotations } } =
   else
     foldMap constructors nodeChildren
 
+analysePatternSynonyms :: ( Alternative m, MonadState Analysis m ) => HieAST a -> m ()
+analysePatternSynonyms n@Node{ nodeInfo = NodeInfo{ nodeAnnotations } } = do
+  guard $ ( "PatSynBind", "HsBindLR" ) `Set.member` nodeAnnotations
+
+  for_ ( findDeclarations n ) $ for_ ( uses n ) . addDependency
 
 findDeclarations :: HieAST a -> Seq Declaration
 findDeclarations =
