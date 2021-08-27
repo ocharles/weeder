@@ -61,13 +61,14 @@ import Paths_weeder (version)
 -- | Parse command line arguments and into a 'Config' and run 'mainWithConfig'.
 main :: IO ()
 main = do
-  (configExpr, hieExt, hieDirectories) <-
+  (configExpr, hieExt, hieDirectories, requireHsFiles) <-
     execParser $
       info (optsP <**> helper <**> versionP) mempty
 
-  Dhall.input config configExpr >>= mainWithConfig hieExt hieDirectories
+  Dhall.input config configExpr
+    >>= mainWithConfig hieExt hieDirectories requireHsFiles
   where
-    optsP = (,,)
+    optsP = (,,,)
         <$> strOption
             ( long "config"
                 <> help "A Dhall expression for Weeder's configuration. Can either be a file path (a Dhall import) or a literal Dhall expression."
@@ -87,6 +88,10 @@ main = do
                     <> help "A directory to look for .hie files in. Maybe specified multiple times. Default ./."
                 )
             )
+        <*> switch
+              ( long "require-hs-files"
+                  <> help "Requries that all .hie files have matching .hs files. This can help deal with skipping .hie files for Haskell modules that have since been removed"
+              )
 
     versionP = infoOption ( "weeder version "
                             <> showVersion version
@@ -99,8 +104,8 @@ main = do
 --
 -- This will recursively find all files with the given extension in the given directories, perform
 -- analysis, and report all unused definitions according to the 'Config'.
-mainWithConfig :: String -> [FilePath] -> Config -> IO ()
-mainWithConfig hieExt hieDirectories Config{ rootPatterns, typeClassRoots } = do
+mainWithConfig :: String -> [FilePath] -> Bool -> Config -> IO ()
+mainWithConfig hieExt hieDirectories requireHsFiles Config{ rootPatterns, typeClassRoots } = do
   hieFilePaths <-
     concat <$>
       traverse ( getFilesIn hieExt )
@@ -109,7 +114,10 @@ mainWithConfig hieExt hieDirectories Config{ rootPatterns, typeClassRoots } = do
           else hieDirectories
         )
 
-  hsFilePaths <- getFilesIn ".hs" "./."
+  hsFilePaths <-
+    if requireHsFiles
+      then getFilesIn ".hs" "./."
+      else pure []
 
   nameCache <- do
     uniqSupply <- mkSplitUniqSupply 'z'
@@ -120,7 +128,8 @@ mainWithConfig hieExt hieDirectories Config{ rootPatterns, typeClassRoots } = do
       for_ hieFilePaths \hieFilePath -> do
         hieFileResult <- liftIO ( readCompatibleHieFileOrExit nameCache hieFilePath )
         let hsFileExists = any ( hie_hs_file hieFileResult `isSuffixOf` ) hsFilePaths
-        when hsFileExists ( analyseHieFile hieFileResult )
+        when (requireHsFiles ==> hsFileExists) do
+          analyseHieFile hieFileResult
 
   let
     roots =
@@ -222,3 +231,13 @@ readCompatibleHieFileOrExit nameCache path = do
       putStrLn $ "    weeder must be built with the same GHC version"
                <> " as the project it is used on"
       exitFailure
+
+
+
+infixr 5 ==>
+
+
+-- | An infix operator for logical implication
+(==>) :: Bool -> Bool -> Bool
+True  ==> x = x
+False ==> _ = True
