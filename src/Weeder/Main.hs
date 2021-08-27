@@ -10,10 +10,11 @@
 module Weeder.Main ( main, mainWithConfig ) where
 
 -- base
-import Control.Monad ( guard, unless )
+import Control.Monad ( guard, unless, when )
 import Control.Monad.IO.Class ( liftIO )
 import Data.Bool
 import Data.Foldable
+import Data.List ( isSuffixOf )
 import Data.Version ( showVersion )
 import System.Exit ( exitFailure )
 
@@ -35,7 +36,7 @@ import System.FilePath ( isExtensionOf )
 
 -- ghc
 import HieBin ( HieFileResult( HieFileResult, hie_file_result ), readHieFileWithVersion )
-import HieTypes ( HieFile, hieVersion )
+import HieTypes ( HieFile( hie_hs_file ), hieVersion )
 import Module ( moduleName, moduleNameString )
 import NameCache ( initNameCache, NameCache )
 import OccName ( occNameString )
@@ -102,11 +103,13 @@ mainWithConfig :: String -> [FilePath] -> Config -> IO ()
 mainWithConfig hieExt hieDirectories Config{ rootPatterns, typeClassRoots } = do
   hieFilePaths <-
     concat <$>
-      traverse ( getHieFilesIn hieExt )
+      traverse ( getFilesIn hieExt )
         ( if null hieDirectories
           then ["./."]
           else hieDirectories
         )
+
+  hsFilePaths <- getFilesIn ".hs" "./."
 
   nameCache <- do
     uniqSupply <- mkSplitUniqSupply 'z'
@@ -116,7 +119,8 @@ mainWithConfig hieExt hieDirectories Config{ rootPatterns, typeClassRoots } = do
     flip execStateT emptyAnalysis do
       for_ hieFilePaths \hieFilePath -> do
         hieFileResult <- liftIO ( readCompatibleHieFileOrExit nameCache hieFilePath )
-        analyseHieFile hieFileResult
+        let hsFileExists = any ( hie_hs_file hieFileResult `isSuffixOf` ) hsFilePaths
+        when hsFileExists ( analyseHieFile hieFileResult )
 
   let
     roots =
@@ -162,13 +166,13 @@ showWeed path start d =
 
 
 -- | Recursively search for files with the given extension in given directory
-getHieFilesIn
+getFilesIn
   :: String
   -- ^ Only files with this extension are considered
   -> FilePath
   -- ^ Directory to look in
   -> IO [FilePath]
-getHieFilesIn ext path = do
+getFilesIn ext path = do
   exists <-
     doesPathExist path
 
@@ -193,7 +197,7 @@ getHieFilesIn ext path = do
               cnts <-
                 listDirectory path
 
-              withCurrentDirectory path ( foldMap ( getHieFilesIn ext ) cnts )
+              withCurrentDirectory path ( foldMap ( getFilesIn ext ) cnts )
 
             else
               return []
