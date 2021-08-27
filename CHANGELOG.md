@@ -1,5 +1,9 @@
 ## Changelog for Weeder
 
+### Unreleased
+
+- Allow configuration of the HIE file extension using the `--hie-extension` command-line flag
+
 ### [`2.1.3`][v2.1.3] - *2020-12-11*
 
 - Support `dhall-1.35`, `dhall-1.36` and `dhall-1.37`.

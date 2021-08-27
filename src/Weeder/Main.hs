@@ -16,11 +16,7 @@ import Data.Bool
 import Data.Foldable
 import Data.List ( isSuffixOf )
 import Data.Version ( showVersion )
-import Text.Printf ( printf )
 import System.Exit ( exitFailure )
-
--- bytestring
-import qualified Data.ByteString.Char8 as BS
 
 -- containers
 import qualified Data.Map.Strict as Map
@@ -44,7 +40,7 @@ import HieTypes ( HieFile( hie_hs_file ), hieVersion )
 import Module ( moduleName, moduleNameString )
 import NameCache ( initNameCache, NameCache )
 import OccName ( occNameString )
-import SrcLoc ( realSrcSpanStart, srcLocCol, srcLocLine )
+import SrcLoc ( RealSrcLoc, realSrcSpanStart, srcLocLine )
 import UniqSupply ( mkSplitUniqSupply )
 
 -- regex-tdfa
@@ -65,19 +61,25 @@ import Paths_weeder (version)
 -- | Parse command line arguments and into a 'Config' and run 'mainWithConfig'.
 main :: IO ()
 main = do
-  (configExpr, hieDirectories) <-
+  (configExpr, hieExt, hieDirectories) <-
     execParser $
       info (optsP <**> helper <**> versionP) mempty
 
-  Dhall.input config configExpr >>= mainWithConfig hieDirectories
+  Dhall.input config configExpr >>= mainWithConfig hieExt hieDirectories
   where
-    optsP = (,)
+    optsP = (,,)
         <$> strOption
             ( long "config"
                 <> help "A Dhall expression for Weeder's configuration. Can either be a file path (a Dhall import) or a literal Dhall expression."
                 <> value "./weeder.dhall"
                 <> metavar "<weeder.dhall>"
                 <> showDefaultWith T.unpack
+            )
+        <*> strOption
+            ( long "hie-extension"
+                <> value ".hie"
+                <> help "Extension of HIE files"
+                <> showDefault
             )
         <*> many (
             strOption
@@ -95,19 +97,19 @@ main = do
 
 -- | Run Weeder in the current working directory with a given 'Config'.
 --
--- This will recursively find all @.hie@ files in the current directory, perform
+-- This will recursively find all files with the given extension in the given directories, perform
 -- analysis, and report all unused definitions according to the 'Config'.
-mainWithConfig :: [FilePath] -> Config -> IO ()
-mainWithConfig hieDirectories Config{ rootPatterns, typeClassRoots } = do
+mainWithConfig :: String -> [FilePath] -> Config -> IO ()
+mainWithConfig hieExt hieDirectories Config{ rootPatterns, typeClassRoots } = do
   hieFilePaths <-
     concat <$>
-      traverse getHieFilesIn
+      traverse ( getFilesIn hieExt )
         ( if null hieDirectories
           then ["./."]
           else hieDirectories
         )
 
-  hsFilePaths <- getHsFiles
+  hsFilePaths <- getFilesIn ".hs" "./."
 
   nameCache <- do
     uniqSupply <- mkSplitUniqSupply 'z'
@@ -144,69 +146,32 @@ mainWithConfig hieDirectories Config{ rootPatterns, typeClassRoots } = do
         ( \d ->
             fold $ do
               moduleFilePath <- Map.lookup ( declModule d ) ( modulePaths analysis )
-              moduleSource <- Map.lookup ( declModule d ) ( moduleSource analysis )
-
               spans <- Map.lookup d ( declarationSites analysis )
               guard $ not $ null spans
-
-              let snippets = do
-                    srcSpan <- Set.toList spans
-
-                    let start = realSrcSpanStart srcSpan
-                    let firstLine = max 0 ( srcLocLine start - 3 )
-
-                    return ( start, take 5 $ drop firstLine $ zip [1..] $ BS.lines moduleSource )
-
-              return [ Map.singleton moduleFilePath ( liftA2 (,) snippets (pure d) ) ]
+              let starts = map realSrcSpanStart $ Set.toList spans
+              return [ Map.singleton moduleFilePath ( liftA2 (,) starts (pure d) ) ]
         )
         dead
 
   for_ ( Map.toList warnings ) \( path, declarations ) ->
-    for_ declarations \( ( start, snippet ), d ) -> do
-      putStrLn $
-        unwords
-          [ foldMap ( <> ":" ) [ path, show ( srcLocLine start ), show ( srcLocCol start ) ]
-          , "error:"
-          , occNameString ( declOccName d )
-          , "is unused"
-          ]
-
-      putStrLn ""
-      for_ snippet \( n, line ) ->
-        putStrLn $
-             replicate 4 ' '
-          <> printf "% 4d" ( n :: Int )
-          <> " ┃ "
-          <> BS.unpack line
-      putStrLn ""
-
-      putStrLn $
-           replicate 4 ' '
-        <> "Delete this definition or add ‘"
-        <> moduleNameString ( moduleName ( declModule d ) )
-        <> "."
-        <> occNameString ( declOccName d )
-        <> "’ as a root to fix this error."
-      putStrLn ""
-      putStrLn ""
-
-  putStrLn $ "Weeds detected: " <> show ( sum ( length <$> warnings ) )
+    for_ declarations \( start, d ) ->
+      putStrLn $ showWeed path start d
 
   unless ( null warnings ) exitFailure
 
-
--- | Recursively search for .hie files in given directory
-getHieFilesIn :: FilePath -> IO [FilePath]
-getHieFilesIn = getFilesIn "hie"
-
-
--- | Recursively search for .hs files in the current directory
-getHsFiles :: IO [FilePath]
-getHsFiles = getFilesIn "hs" "./."
+showWeed :: FilePath -> RealSrcLoc -> Declaration -> String
+showWeed path start d =
+  path <> ":" <> show ( srcLocLine start ) <> ": "
+    <> occNameString ( declOccName d)
 
 
--- | Recursively search for files in the given directory by extension
-getFilesIn :: String -> FilePath -> IO [FilePath]
+-- | Recursively search for files with the given extension in given directory
+getFilesIn
+  :: String
+  -- ^ Only files with this extension are considered
+  -> FilePath
+  -- ^ Directory to look in
+  -> IO [FilePath]
 getFilesIn ext path = do
   exists <-
     doesPathExist path

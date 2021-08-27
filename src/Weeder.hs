@@ -7,7 +7,6 @@
 {-# language NoImplicitPrelude #-}
 {-# language OverloadedLabels #-}
 {-# language OverloadedStrings #-}
-{-# language PackageImports #-}
 
 module Weeder
   ( -- * Analysis
@@ -38,9 +37,6 @@ import Data.Monoid ( First( First ) )
 import GHC.Generics ( Generic )
 import Prelude hiding ( span )
 
--- bytestring
-import Data.ByteString ( ByteString )
-
 -- containers
 import Data.Map.Strict ( Map )
 import qualified Data.Map.Strict as Map
@@ -60,7 +56,7 @@ import HieTypes
   , DeclType( DataDec, ClassDec, ConDec )
   , HieAST( Node, nodeInfo, nodeChildren, nodeSpan )
   , HieASTs( HieASTs )
-  , HieFile( HieFile, hie_asts, hie_exports, hie_module, hie_hs_file, hie_hs_src )
+  , HieFile( HieFile, hie_asts, hie_exports, hie_module, hie_hs_file )
   , IdentifierDetails( IdentifierDetails, identInfo )
   , NodeInfo( NodeInfo, nodeIdentifiers, nodeAnnotations )
   , Scope( ModuleScope )
@@ -139,7 +135,6 @@ data Analysis =
       -- ^ All exports for a given module.
     , modulePaths :: Map Module FilePath
       -- ^ A map from modules to the file path to the .hs file defining them.
-    , moduleSource :: Map Module ByteString
     }
   deriving
     ( Generic )
@@ -147,8 +142,7 @@ data Analysis =
 
 -- | The empty analysis - the result of analysing zero @.hie@ files.
 emptyAnalysis :: Analysis
-emptyAnalysis =
-  Analysis empty mempty mempty mempty mempty mempty
+emptyAnalysis = Analysis empty mempty mempty mempty mempty
 
 
 -- | A root for reachability analysis.
@@ -181,9 +175,8 @@ allDeclarations Analysis{ dependencyGraph } =
 
 -- | Incrementally update 'Analysis' with information in a 'HieFile'.
 analyseHieFile :: MonadState Analysis m => HieFile -> m ()
-analyseHieFile HieFile{ hie_asts = HieASTs hieASTs, hie_exports, hie_module, hie_hs_file, hie_hs_src } = do
+analyseHieFile HieFile{ hie_asts = HieASTs hieASTs, hie_exports, hie_module, hie_hs_file } = do
   #modulePaths %= Map.insert hie_module hie_hs_file
-  #moduleSource %= Map.insert hie_module hie_hs_src
 
   for_ hieASTs \ast -> do
     addAllDeclarations ast
@@ -253,6 +246,7 @@ topLevelAnalysis n@Node{ nodeChildren } = do
           , analyseRewriteRule n
           , analyseClassDeclaration n
           , analyseDataDeclaration n
+          , analysePatternSynonyms n
           ]
       )
 
@@ -274,8 +268,7 @@ analyseBinding n@Node{ nodeSpan, nodeInfo = NodeInfo{ nodeAnnotations } } = do
   for_ ( findDeclarations n ) \d -> do
     define d nodeSpan
 
-    for_ ( uses n ) \use ->
-      addDependency d use
+    for_ ( uses n ) $ addDependency d
 
 
 analyseRewriteRule :: ( Alternative m, MonadState Analysis m ) => HieAST a -> m ()
@@ -296,8 +289,8 @@ analyseClassDeclaration :: ( Alternative m, MonadState Analysis m ) => HieAST a 
 analyseClassDeclaration n@Node{ nodeInfo = NodeInfo{ nodeAnnotations } } = do
   guard ( ( "ClassDecl", "TyClDecl" ) `Set.member` nodeAnnotations )
 
-  for_ ( findIdentifiers isClassDeclaration n ) \d ->
-    for_ ( findIdentifiers ( const True ) n ) ( addDependency d )
+  for_ ( findIdentifiers isClassDeclaration n ) $
+    for_ ( findIdentifiers ( const True ) n ) . addDependency
 
   where
 
@@ -345,6 +338,11 @@ constructors n@Node { nodeChildren, nodeInfo = NodeInfo{ nodeAnnotations } } =
   else
     foldMap constructors nodeChildren
 
+analysePatternSynonyms :: ( Alternative m, MonadState Analysis m ) => HieAST a -> m ()
+analysePatternSynonyms n@Node{ nodeInfo = NodeInfo{ nodeAnnotations } } = do
+  guard $ ( "PatSynBind", "HsBindLR" ) `Set.member` nodeAnnotations
+
+  for_ ( findDeclarations n ) $ for_ ( uses n ) . addDependency
 
 findDeclarations :: HieAST a -> Seq Declaration
 findDeclarations =
