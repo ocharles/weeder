@@ -14,6 +14,4 @@ jobs:
       with:
         name: weeder
         signingKey: 7Pn6R7tF95HC2INHlVsphnqzZNT8Zmx3GBoqtwIvvH5F1SYlqVocPnR8aDds2qw4aYbNFGpMhpyY8G79e2OXcg==
-    - run: nix-build -A hsPkgs.weeder.components.exes --argstr compiler-nix-name 'ghc884'
-    - run: nix-build -A hsPkgs.weeder.components.exes --argstr compiler-nix-name 'ghc8104'
     - run: nix-build -A hsPkgs.weeder.components.exes --argstr compiler-nix-name 'ghc901'

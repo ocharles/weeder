@@ -1,5 +1,5 @@
-{ compiler-nix-name ? "ghc884" }:
-let 
+{ compiler-nix-name ? "ghc901" }:
+let
   haskellNix = import (import ./nix/sources.nix)."haskell.nix" {};
 
   nixpkgsSrc = haskellNix.sources.nixpkgs-2009;
@@ -8,7 +8,7 @@ let
 
   pkgs = import nixpkgsSrc nixpkgsArgs;
 
-in 
+in
 pkgs.haskell-nix.project {
   inherit compiler-nix-name;
 
