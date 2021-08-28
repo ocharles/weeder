@@ -2,7 +2,7 @@
 
 ### [`2.2.0`][v2.2.0] - *2021-08-28*
 
-This is the last Weeder release before switching to GHC 9.
+This will likely be the last Weeder release before GHC 9.
 
 - Allow configuration of the HIE file extension using the `--hie-extension` command-line flag
 - Add `--require-hs-files` switch. If supplied, this switch means Weeder will only consider `.hie` files where a corresponding `.hs` file can be found. ([#50](https://github.com/ocharles/weeder/pull/50))
