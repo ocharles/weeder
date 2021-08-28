@@ -190,9 +190,12 @@ maintained by Ollie Charles (@ocharles on GitHub).
 
 - Initial version
 
-
-[v2.0.1 ]: https://github.com/ocharles/weeder/tree/v2.0.1
-[v2.0.0 ]: https://github.com/ocharles/weeder/tree/v2.0.0
+[v2.1.3 ]: https://github.com/ocharles/weeder/releases/tag/2.1.3
+[v2.1.2 ]: https://github.com/ocharles/weeder/releases/tag/2.1.2
+[v2.1.1 ]: https://github.com/ocharles/weeder/releases/tag/2.1.1
+[v2.1.0 ]: https://github.com/ocharles/weeder/releases/tag/2.1.0
+[v2.0.1 ]: https://github.com/ocharles/weeder/releases/tag/2.0.1
+[v2.0.0 ]: https://github.com/ocharles/weeder/releases/tag/2.0.0
 [v1.0.8 ]: https://github.com/ndmitchell/weeder/tree/v1.0.8
 [v1.0.7 ]: https://github.com/ndmitchell/weeder/tree/v1.0.7
 [v1.0.6 ]: https://github.com/ndmitchell/weeder/tree/v1.0.6
