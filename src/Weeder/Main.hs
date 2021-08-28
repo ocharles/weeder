@@ -10,10 +10,11 @@
 module Weeder.Main ( main, mainWithConfig ) where
 
 -- base
-import Control.Monad ( guard, unless )
+import Control.Monad ( guard, unless, when )
 import Control.Monad.IO.Class ( liftIO )
 import Data.Bool
 import Data.Foldable
+import Data.List ( isSuffixOf )
 import Data.Version ( showVersion )
 import System.Exit ( exitFailure )
 
@@ -35,7 +36,7 @@ import System.FilePath ( isExtensionOf )
 
 -- ghc
 import HieBin ( HieFileResult( HieFileResult, hie_file_result ), readHieFileWithVersion )
-import HieTypes ( HieFile, hieVersion )
+import HieTypes ( HieFile( hie_hs_file ), hieVersion )
 import Module ( moduleName, moduleNameString )
 import NameCache ( initNameCache, NameCache )
 import OccName ( occNameString )
@@ -60,13 +61,14 @@ import Paths_weeder (version)
 -- | Parse command line arguments and into a 'Config' and run 'mainWithConfig'.
 main :: IO ()
 main = do
-  (configExpr, hieExt, hieDirectories) <-
+  (configExpr, hieExt, hieDirectories, requireHsFiles) <-
     execParser $
       info (optsP <**> helper <**> versionP) mempty
 
-  Dhall.input config configExpr >>= mainWithConfig hieExt hieDirectories
+  Dhall.input config configExpr
+    >>= mainWithConfig hieExt hieDirectories requireHsFiles
   where
-    optsP = (,,)
+    optsP = (,,,)
         <$> strOption
             ( long "config"
                 <> help "A Dhall expression for Weeder's configuration. Can either be a file path (a Dhall import) or a literal Dhall expression."
@@ -86,6 +88,10 @@ main = do
                     <> help "A directory to look for .hie files in. Maybe specified multiple times. Default ./."
                 )
             )
+        <*> switch
+              ( long "require-hs-files"
+                  <> help "Requries that all .hie files have matching .hs files. This can help deal with skipping .hie files for Haskell modules that have since been removed"
+              )
 
     versionP = infoOption ( "weeder version "
                             <> showVersion version
@@ -98,15 +104,20 @@ main = do
 --
 -- This will recursively find all files with the given extension in the given directories, perform
 -- analysis, and report all unused definitions according to the 'Config'.
-mainWithConfig :: String -> [FilePath] -> Config -> IO ()
-mainWithConfig hieExt hieDirectories Config{ rootPatterns, typeClassRoots } = do
+mainWithConfig :: String -> [FilePath] -> Bool -> Config -> IO ()
+mainWithConfig hieExt hieDirectories requireHsFiles Config{ rootPatterns, typeClassRoots } = do
   hieFilePaths <-
     concat <$>
-      traverse ( getHieFilesIn hieExt )
+      traverse ( getFilesIn hieExt )
         ( if null hieDirectories
           then ["./."]
           else hieDirectories
         )
+
+  hsFilePaths <-
+    if requireHsFiles
+      then getFilesIn ".hs" "./."
+      else pure []
 
   nameCache <- do
     uniqSupply <- mkSplitUniqSupply 'z'
@@ -116,7 +127,9 @@ mainWithConfig hieExt hieDirectories Config{ rootPatterns, typeClassRoots } = do
     flip execStateT emptyAnalysis do
       for_ hieFilePaths \hieFilePath -> do
         hieFileResult <- liftIO ( readCompatibleHieFileOrExit nameCache hieFilePath )
-        analyseHieFile hieFileResult
+        let hsFileExists = any ( hie_hs_file hieFileResult `isSuffixOf` ) hsFilePaths
+        when (requireHsFiles ==> hsFileExists) do
+          analyseHieFile hieFileResult
 
   let
     roots =
@@ -162,13 +175,13 @@ showWeed path start d =
 
 
 -- | Recursively search for files with the given extension in given directory
-getHieFilesIn
+getFilesIn
   :: String
   -- ^ Only files with this extension are considered
   -> FilePath
   -- ^ Directory to look in
   -> IO [FilePath]
-getHieFilesIn ext path = do
+getFilesIn ext path = do
   exists <-
     doesPathExist path
 
@@ -193,7 +206,7 @@ getHieFilesIn ext path = do
               cnts <-
                 listDirectory path
 
-              withCurrentDirectory path ( foldMap ( getHieFilesIn ext ) cnts )
+              withCurrentDirectory path ( foldMap ( getFilesIn ext ) cnts )
 
             else
               return []
@@ -218,3 +231,13 @@ readCompatibleHieFileOrExit nameCache path = do
       putStrLn $ "    weeder must be built with the same GHC version"
                <> " as the project it is used on"
       exitFailure
+
+
+
+infixr 5 ==>
+
+
+-- | An infix operator for logical implication
+(==>) :: Bool -> Bool -> Bool
+True  ==> x = x
+False ==> _ = True
