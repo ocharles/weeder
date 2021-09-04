@@ -1,8 +1,14 @@
 ## Changelog for Weeder
 
-### Unreleased
+### [`2.2.0`][v2.2.0] - *2021-08-28*
+
+This will likely be the last Weeder release before GHC 9.
 
 - Allow configuration of the HIE file extension using the `--hie-extension` command-line flag
+- Add `--require-hs-files` switch. If supplied, this switch means Weeder will only consider `.hie` files where a corresponding `.hs` file can be found. ([#50](https://github.com/ocharles/weeder/pull/50))
+- Pattern synonyms are now considered ([#79](https://github.com/ocharles/weeder/pull/79))
+- Weeder's output format is now one-line-per-weed ([#62](https://github.com/ocharles/weeder/pull/62))
+- `--hie-extension` can be used to change the extension used for `.hie` files ([#64](https://github.com/ocharles/weeder/pull/64))
 
 ### [`2.1.3`][v2.1.3] - *2020-12-11*
 
@@ -191,8 +197,13 @@ maintained by Ollie Charles (@ocharles on GitHub).
 - Initial version
 
 
-[v2.0.1 ]: https://github.com/ocharles/weeder/tree/v2.0.1
-[v2.0.0 ]: https://github.com/ocharles/weeder/tree/v2.0.0
+[v2.2.0 ]: https://github.com/ocharles/weeder/releases/tag/2.2.0
+[v2.1.3 ]: https://github.com/ocharles/weeder/releases/tag/2.1.3
+[v2.1.2 ]: https://github.com/ocharles/weeder/releases/tag/2.1.2
+[v2.1.1 ]: https://github.com/ocharles/weeder/releases/tag/2.1.1
+[v2.1.0 ]: https://github.com/ocharles/weeder/releases/tag/2.1.0
+[v2.0.1 ]: https://github.com/ocharles/weeder/releases/tag/2.0.1
+[v2.0.0 ]: https://github.com/ocharles/weeder/releases/tag/2.0.0
 [v1.0.8 ]: https://github.com/ndmitchell/weeder/tree/v1.0.8
 [v1.0.7 ]: https://github.com/ndmitchell/weeder/tree/v1.0.7
 [v1.0.6 ]: https://github.com/ndmitchell/weeder/tree/v1.0.6
