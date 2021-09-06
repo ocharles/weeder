@@ -86,6 +86,7 @@ data Declaration = Declaration
   , name :: Name
   , uses :: [Name]
   , span :: RealSrcSpan
+  , userDeclared :: Bool
   }
   deriving stock Show
 
@@ -243,6 +244,7 @@ analyseNode node@NodeF{ sourcedNodeInfo, nodeChildren, nodeSpan } analysisState 
                 { name, uses
                 , declType = "ModuleEvidence"
                 , span = nodeSpan
+                , userDeclared = False
                 }
             , childDeclarations
             ]
@@ -255,6 +257,7 @@ analyseNode node@NodeF{ sourcedNodeInfo, nodeChildren, nodeSpan } analysisState 
                   , declType = show mode'
                   , uses = transitiveUses
                   , span = nodeSpan
+                  , userDeclared = True
                   }
               , subForest = childDeclarations
               }

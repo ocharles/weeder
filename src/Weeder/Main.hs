@@ -12,8 +12,10 @@ module Weeder.Main ( main, mainWithConfig ) where
 -- algebraic-graphs
 import Algebra.Graph.AdjacencyMap ( overlays )
 import Algebra.Graph.AdjacencyMap.Algorithm ( dfs )
---
+import Algebra.Graph.Export.Dot
+
 -- base
+import Debug.Trace
 import Control.Monad ( guard, unless, when )
 import Control.Monad.IO.Class ( liftIO )
 import Data.Bool
@@ -22,7 +24,9 @@ import Data.Function ( (&) )
 import Data.List ( isSuffixOf )
 import Data.Traversable ( for )
 import Data.Version ( showVersion )
+import Prelude hiding ( span )
 import System.Exit ( exitFailure )
+import Data.IORef
 
 -- containers
 import qualified Data.Map.Strict as Map
@@ -46,8 +50,8 @@ import GHC.Iface.Ext.Binary ( HieFileResult( HieFileResult, hie_file_result ), N
 import GHC.Iface.Ext.Types ( HieFile( hie_hs_file ), hieVersion, getAsts, hie_asts )
 import GHC.Unit.Module ( moduleName, moduleNameString )
 import GHC.Types.Name.Cache ( initNameCache, NameCache )
-import GHC.Types.Name ( occNameString, nameModule, getOccName )
-import GHC.Types.SrcLoc ( RealSrcLoc, realSrcSpanStart, srcLocLine )
+import GHC.Types.Name ( occNameString, nameModule, getOccName, nameModule_maybe )
+import GHC.Types.SrcLoc ( RealSrcLoc, realSrcSpanStart, srcLocLine, srcSpanStartLine )
 import GHC.Types.Unique.Supply ( mkSplitUniqSupply )
 
 -- regex-tdfa
@@ -126,32 +130,39 @@ mainWithConfig hieExt hieDirectories requireHsFiles Config{ rootPatterns, typeCl
       then getFilesIn ".hs" "./."
       else pure []
 
-  nameCache <- do
+  ncu <- do
     uniqSupply <- mkSplitUniqSupply 'z'
-    return ( initNameCache uniqSupply [] )
+    nameCacheRef <- newIORef (initNameCache uniqSupply [])
+    return $ NCU $ atomicModifyIORef' nameCacheRef
 
   analysis <- concat <$> do
   --   flip execStateT emptyAnalysis do
       for hieFilePaths \hieFilePath -> do
-        hieFileResult <- liftIO ( readCompatibleHieFileOrExit nameCache hieFilePath )
+        hieFileResult <- liftIO ( readCompatibleHieFileOrExit ncu hieFilePath )
         let hsFileExists = any ( hie_hs_file hieFileResult `isSuffixOf` ) hsFilePaths
         return if requireHsFiles ==> hsFileExists
           then foldMap (pure . toASTs) (getAsts (hie_asts hieFileResult))
           else []
 
+  -- for_ analysis \a ->
+  --   for_ (nodeDeclarations a) (putStrLn . Tree.drawTree . fmap show)
+
   let
     allDeclarations = Set.fromList do
       nodeAnalysis <- analysis
       declTree <- nodeDeclarations nodeAnalysis
-      Declaration{ name } <- Tree.flatten declTree
+      Declaration{ name, userDeclared } <- Tree.flatten declTree
+      guard userDeclared
       return name
 
     roots =
       allDeclarations & Set.filter \name ->
         rootPatterns & any \pattern ->
+          nameModule_maybe name & any \m ->
+            (moduleNameString (moduleName m) <> "." <> occNameString (getOccName name)) =~ pattern
+
           -- False
-          -- (moduleNameString (moduleName (nameModule name)) <> "." <> occNameString (getOccName name)) =~ pattern
-          (occNameString (getOccName name)) =~ pattern
+          -- (occNameString (getOccName name)) =~ pattern
 
     g = overlays $ dependencyGraph <$> analysis
 
@@ -159,7 +170,15 @@ mainWithConfig hieExt hieDirectories requireHsFiles Config{ rootPatterns, typeCl
 
     dead = allDeclarations Set.\\ reachableSet
 
-  mapM_ print dead
+  -- putStrLn $ export (defaultStyle show) g
+
+  -- putStrLn "***"
+  -- mapM_ print roots
+  -- putStrLn "***"
+  for_ dead \name ->
+    case nameModule_maybe name of
+      Just m -> putStrLn $ moduleNameString (moduleName m) <> "." <> occNameString (getOccName name)
+      Nothing -> return ()
 
   --   warnings =
   --     Map.unionsWith (++) $
@@ -229,9 +248,9 @@ getFilesIn ext path = do
 
 
 -- | Read a .hie file, exiting if it's an incompatible version.
-readCompatibleHieFileOrExit :: NameCache -> FilePath -> IO HieFile
-readCompatibleHieFileOrExit nameCache path = do
-  res <- readHieFileWithVersion (\(v, _) -> v == hieVersion) (NCU (\f -> return $ snd $ f nameCache)) path
+readCompatibleHieFileOrExit :: NameCacheUpdater -> FilePath -> IO HieFile
+readCompatibleHieFileOrExit ncu path = do
+  res <- readHieFileWithVersion (\(v, _) -> v == hieVersion) ncu path
   case res of
     Right HieFileResult{ hie_file_result } ->
       return hie_file_result
