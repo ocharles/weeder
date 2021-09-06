@@ -9,18 +9,25 @@
 
 module Weeder.Main ( main, mainWithConfig ) where
 
+-- algebraic-graphs
+import Algebra.Graph.AdjacencyMap ( overlays )
+import Algebra.Graph.AdjacencyMap.Algorithm ( dfs )
+--
 -- base
 import Control.Monad ( guard, unless, when )
 import Control.Monad.IO.Class ( liftIO )
 import Data.Bool
 import Data.Foldable
+import Data.Function ( (&) )
 import Data.List ( isSuffixOf )
+import Data.Traversable ( for )
 import Data.Version ( showVersion )
 import System.Exit ( exitFailure )
 
 -- containers
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
+import qualified Data.Tree as Tree
 
 -- text
 import qualified Data.Text as T
@@ -36,10 +43,10 @@ import System.FilePath ( isExtensionOf )
 
 -- ghc
 import GHC.Iface.Ext.Binary ( HieFileResult( HieFileResult, hie_file_result ), NameCacheUpdater( NCU ), readHieFileWithVersion )
-import GHC.Iface.Ext.Types ( HieFile( hie_hs_file ), hieVersion )
+import GHC.Iface.Ext.Types ( HieFile( hie_hs_file ), hieVersion, getAsts, hie_asts )
 import GHC.Unit.Module ( moduleName, moduleNameString )
 import GHC.Types.Name.Cache ( initNameCache, NameCache )
-import GHC.Types.Name ( occNameString )
+import GHC.Types.Name ( occNameString, nameModule, getOccName )
 import GHC.Types.SrcLoc ( RealSrcLoc, realSrcSpanStart, srcLocLine )
 import GHC.Types.Unique.Supply ( mkSplitUniqSupply )
 
@@ -53,7 +60,7 @@ import Options.Applicative
 import Control.Monad.Trans.State.Strict ( execStateT )
 
 -- weeder
-import Weeder
+import Weeder.New
 import Weeder.Config
 import Paths_weeder (version)
 
@@ -123,55 +130,61 @@ mainWithConfig hieExt hieDirectories requireHsFiles Config{ rootPatterns, typeCl
     uniqSupply <- mkSplitUniqSupply 'z'
     return ( initNameCache uniqSupply [] )
 
-  analysis <-
-    flip execStateT emptyAnalysis do
-      for_ hieFilePaths \hieFilePath -> do
+  analysis <- concat <$> do
+  --   flip execStateT emptyAnalysis do
+      for hieFilePaths \hieFilePath -> do
         hieFileResult <- liftIO ( readCompatibleHieFileOrExit nameCache hieFilePath )
         let hsFileExists = any ( hie_hs_file hieFileResult `isSuffixOf` ) hsFilePaths
-        when (requireHsFiles ==> hsFileExists) do
-          analyseHieFile hieFileResult
+        return if requireHsFiles ==> hsFileExists
+          then foldMap (pure . toASTs) (getAsts (hie_asts hieFileResult))
+          else []
 
   let
+    allDeclarations = Set.fromList do
+      nodeAnalysis <- analysis
+      declTree <- nodeDeclarations nodeAnalysis
+      Declaration{ name } <- Tree.flatten declTree
+      return name
+
     roots =
-      Set.filter
-        ( \d ->
-            any
-              ( ( moduleNameString ( moduleName ( declModule d ) ) <> "." <> occNameString ( declOccName d ) ) =~ )
-              rootPatterns
-        )
-        ( allDeclarations analysis )
+      allDeclarations & Set.filter \name ->
+        rootPatterns & any \pattern ->
+          -- False
+          -- (moduleNameString (moduleName (nameModule name)) <> "." <> occNameString (getOccName name)) =~ pattern
+          (occNameString (getOccName name)) =~ pattern
 
-    reachableSet =
-      reachable
-        analysis
-        ( Set.map DeclarationRoot roots <> bool mempty ( Set.map DeclarationRoot ( implicitRoots analysis ) ) typeClassRoots )
+    g = overlays $ dependencyGraph <$> analysis
 
-    dead =
-      allDeclarations analysis Set.\\ reachableSet
+    reachableSet = Set.fromList $ dfs (toList roots) g
 
-    warnings =
-      Map.unionsWith (++) $
-      foldMap
-        ( \d ->
-            fold $ do
-              moduleFilePath <- Map.lookup ( declModule d ) ( modulePaths analysis )
-              spans <- Map.lookup d ( declarationSites analysis )
-              guard $ not $ null spans
-              let starts = map realSrcSpanStart $ Set.toList spans
-              return [ Map.singleton moduleFilePath ( liftA2 (,) starts (pure d) ) ]
-        )
-        dead
+    dead = allDeclarations Set.\\ reachableSet
 
-  for_ ( Map.toList warnings ) \( path, declarations ) ->
-    for_ declarations \( start, d ) ->
-      putStrLn $ showWeed path start d
+  mapM_ print dead
 
-  unless ( null warnings ) exitFailure
+  --   warnings =
+  --     Map.unionsWith (++) $
+  --     foldMap
+  --       ( \d ->
+  --           fold $ do
+  --             moduleFilePath <- Map.lookup ( declModule d ) ( modulePaths analysis )
+  --             spans <- Map.lookup d ( declarationSites analysis )
+  --             guard $ not $ null spans
+  --             let starts = map realSrcSpanStart $ Set.toList spans
+  --             return [ Map.singleton moduleFilePath ( liftA2 (,) starts (pure d) ) ]
+  --       )
+  --       dead
 
-showWeed :: FilePath -> RealSrcLoc -> Declaration -> String
-showWeed path start d =
-  path <> ":" <> show ( srcLocLine start ) <> ": "
-    <> occNameString ( declOccName d)
+  -- for_ ( Map.toList warnings ) \( path, declarations ) ->
+  --   for_ declarations \( start, d ) ->
+  --     putStrLn $ showWeed path start d
+
+  -- unless ( null warnings ) exitFailure
+
+
+-- showWeed :: FilePath -> RealSrcLoc -> Declaration -> String
+-- showWeed path start d =
+--   path <> ":" <> show ( srcLocLine start ) <> ": "
+--     <> occNameString ( declOccName d)
 
 
 -- | Recursively search for files with the given extension in given directory

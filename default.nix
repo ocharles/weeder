@@ -18,6 +18,7 @@ pkgs.haskell-nix.project {
   };
 
   modules = [(pkgs.lib.optionalAttrs (compiler-nix-name == "ghc901") {
+    enableLibraryProfiling = true;
     nonReinstallablePkgs = [
       "rts" "ghc-heap" "ghc-prim" "integer-gmp" "integer-simple" "base"
       "deepseq" "array" "ghc-boot-th" "pretty" "template-haskell"

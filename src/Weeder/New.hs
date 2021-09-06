@@ -1,48 +1,67 @@
 {-# language BlockArguments #-}
-{-# language DeriveGeneric #-}
 {-# language DeriveFunctor #-}
+{-# language DeriveGeneric #-}
 {-# language DerivingStrategies #-}
 {-# language DuplicateRecordFields #-}
+{-# language ImportQualifiedPost #-}
 {-# language LambdaCase #-}
 {-# language NamedFieldPuns #-}
 {-# language OverloadedStrings #-}
 {-# language RecordWildCards #-}
+{-# language Trustworthy #-}
 {-# language TypeFamilies #-}
 
-module Recursive where
+{-# options -Wno-unsafe #-}
+{-# options -Wno-orphans #-}
+{-# options -Wno-implicit-prelude #-}
 
-import Data.Map.Strict ( Map )
-import qualified Data.Map.Strict as Map
-import qualified Data.Set as Set
-import qualified Data.Functor.Base as Tree ( TreeF(..) )
-import Algebra.Graph.AdjacencyMap
-import Algebra.Graph.AdjacencyMap
-import Algebra.Graph.AdjacencyMap.Algorithm
-import Algebra.Graph.Export.Dot
+module Weeder.New where
+
+import Algebra.Graph.AdjacencyMap ( AdjacencyMap, vertex, edge, overlay, overlays, connect, vertexList )
+import Algebra.Graph.AdjacencyMap.Algorithm ( dfs )
 import Control.Monad ( guard )
-import Data.Maybe ( fromMaybe )
-import GHC.Generics ( Generic )
-import Debug.Trace
-import Data.List ( find )
-import Data.Tree (Tree, Forest)
-import qualified Data.Tree as Tree
-import Data.Function ( (&) )
-import Data.Text ( pack )
-import Data.Bifunctor
-import GHC.Data.FastString
-import qualified Data.Map.Strict as Map
-import Data.Aeson
 import Data.Foldable ( toList )
-import GHC.Types.Name ( Name, nameStableString, isInternalName, nameUnique )
-import GHC.Types.Name.Cache ( initNameCache, NameCache )
+import Data.Function ( (&) )
+import Data.Functor.Base qualified as Tree ( TreeF(..) )
+import Data.Functor.Foldable ( Base, Recursive, project, fold )
+import Data.Map.Strict qualified as Map
+import Data.Maybe ( fromMaybe )
+import Data.Set ( Set )
+import Data.Set qualified as Set
+import Data.Tree ( Forest )
+import Data.Tree qualified as Tree
+import GHC.Data.FastString ( FastString )
+import GHC.Generics ( Generic )
+import GHC.Iface.Ext.Binary ( HieFileResult( HieFileResult ), hie_file_result, NameCacheUpdater( NCU ), readHieFile )
+import GHC.Iface.Ext.Types
+  ( ContextInfo( Decl, EvidenceVarBind, MatchBind, RecField, EvidenceVarUse, Use )
+  , ContextInfo( TyDecl )
+  , DeclType( ConDec, SynDec, DataDec )
+  , EvBindDeps( EvBindDeps )
+  , EvVarSource( EvLetBind )
+  , HieAST( Node )
+  , HieFile( HieFile )
+  , IdentifierDetails( IdentifierDetails )
+  , NodeInfo( NodeInfo )
+  , NodeOrigin( SourceInfo )
+  , RecFieldContext( RecFieldDecl, RecFieldAssign, RecFieldMatch )
+  , Scope( ModuleScope )
+  , SourcedNodeInfo
+  , Span
+  , TypeIndex
+  , getAsts
+  , getSourcedNodeInfo
+  , hie_asts
+  , identInfo
+  , nodeAnnotations
+  , nodeIdentifiers
+  , sourcedNodeInfo, nodeSpan, nodeChildren
+  )
+import GHC.Types.Name ( Name, nameStableString, nameUnique )
+import GHC.Types.Name.Cache ( initNameCache )
 import GHC.Types.SrcLoc ( RealSrcSpan )
 import GHC.Types.Unique.Supply ( mkSplitUniqSupply )
-import Data.Functor.Foldable
-import GHC.Iface.Ext.Binary
-import GHC.Iface.Ext.Types hiding ( Identifier )
-import Data.Set ( Set )
-import GHC.Utils.Outputable ( ppr, showSDocUnsafe )
-import Control.Monad.Omega
+import GHC.Utils.Outputable ( showSDocUnsafe, ppr )
 
 
 -- | This is the same as 'HieAST', but with recursion made explicit (it is the
@@ -60,35 +79,6 @@ type instance Base (HieAST a) = HieASTF a
 
 instance Recursive (HieAST a) where
   project Node{..} = NodeF{..}
-
-
-encodeHieAST :: HieAST a -> Value
-encodeHieAST = cata \NodeF{ sourcedNodeInfo, nodeSpan, nodeChildren } ->
-  let
-    info = object $ map (uncurry originInfo) $ Map.toList $ getSourcedNodeInfo sourcedNodeInfo
-      where
-        originInfo SourceInfo nodeInfo = "source" .= encodeNodeInfo nodeInfo
-        originInfo GeneratedInfo nodeInfo = "generated" .= encodeNodeInfo nodeInfo
-
-    encodeNodeInfo NodeInfo{ nodeAnnotations, nodeIdentifiers } = object
-      [ "annotations" .= foldMap ((:[]) . bimap (pack . unpackFS) unpackFS) nodeAnnotations
-      , "identifiers" .= identifiers
-      ]
-      where
-        identifiers = object $ foldMap (pure . uncurry identifier) $ Map.toList nodeIdentifiers
-
-        identifier (Left moduleName) details = pack (showSDocUnsafe (ppr moduleName)) .= encodeDetails details
-        identifier (Right name) details = pack (nameStableString name) .= encodeDetails details
-
-    encodeDetails IdentifierDetails{ identInfo } = identInfo & foldMap \contextInfo ->
-      [ showSDocUnsafe (ppr contextInfo) ]
-
-  in
-  object
-    [ "span" .= showSDocUnsafe (ppr nodeSpan)
-    , "children" .= nodeChildren
-    , "info" .= info
-    ]
 
 
 data Declaration = Declaration
@@ -120,18 +110,16 @@ identifiers sourcedNodeInfo = Map.lookup SourceInfo (getSourcedNodeInfo sourcedN
   Map.toList nodeIdentifiers & foldMap \(identifier, IdentifierDetails{ identInfo }) ->
     case identifier of
       Left {} -> mempty
-      Right name
-        -- | isInternalName name -> mempty
-        | otherwise -> pure Identifier
-            { identifierName = name
-            , contextInfo = identInfo
-            , origin = SourceInfo
-            }
+      Right name -> pure Identifier
+        { identifierName = name
+        , contextInfo = identInfo
+        , origin = SourceInfo
+        }
 
 
 -- | Convert a HieAST into a forest of Weeder AST nodes and a tree of names.
 toASTs :: HieAST a -> NodeAnalysis
-toASTs ast = cata analyseNode ast initialAnalysisState
+toASTs ast = fold analyseNode ast initialAnalysisState
 
 
 type Algebra f a = f a -> a
@@ -233,7 +221,6 @@ analyseNode node@NodeF{ sourcedNodeInfo, nodeChildren, nodeSpan } analysisState 
             _ -> Just AnalysingTypeSignature
       | otherwise = Nothing
 
-    beginsDeclaration = maybe False (const True) newMode
     mode' = fromMaybe (mode analysisState) newMode
 
     analysisState' = analysisState
@@ -282,9 +269,11 @@ analyseNode node@NodeF{ sourcedNodeInfo, nodeChildren, nodeSpan } analysisState 
 
           guard do
             contextInfo & any \case
-              Use            -> True
-              EvidenceVarUse -> True
-              _              -> False
+              Use                       -> True
+              EvidenceVarUse            -> True
+              RecField RecFieldAssign _ -> True
+              RecField RecFieldMatch  _ -> True
+              _                         -> False
 
           return identifierName
 
@@ -302,6 +291,11 @@ analyseNode node@NodeF{ sourcedNodeInfo, nodeChildren, nodeSpan } analysisState 
       guard do
         contextInfo & any
           case mode' of
+            AnalysingTop -> \_ ->
+              -- We don't try and find declarations when we haven't even
+              -- entered a module.
+              False
+
             AnalysingNestedBind -> \_ ->
               -- We never try and find declarations within nested binds, as they
               -- aren't reachable from outside the top-level binding. This means we
@@ -359,10 +353,10 @@ analyseNode node@NodeF{ sourcedNodeInfo, nodeChildren, nodeSpan } analysisState 
 dependencyGraph :: NodeAnalysis -> AdjacencyMap Name
 dependencyGraph NodeAnalysis{ nodeDeclarations } = overlays do
   declarationTree <- nodeDeclarations
-  return $ cata go declarationTree
+  return $ fold go declarationTree
   where
     -- onlyDeclarations g = g >>= \name -> name <$ guard (Set.member name declNames)
-    declNames = foldMap (foldMap (\Declaration{ name } -> Set.singleton name)) nodeDeclarations
+    -- declNames = foldMap (foldMap (\Declaration{ name } -> Set.singleton name)) nodeDeclarations
 
     go (Tree.NodeF Declaration{ name, uses } subgraphs) =
       connect declarationGraph (overlays subgraphs)
