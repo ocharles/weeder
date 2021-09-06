@@ -359,7 +359,7 @@ dependencyGraph NodeAnalysis{ nodeDeclarations } = overlays do
     -- declNames = foldMap (foldMap (\Declaration{ name } -> Set.singleton name)) nodeDeclarations
 
     go (Tree.NodeF Declaration{ name, uses } subgraphs) =
-      connect declarationGraph (overlays subgraphs)
+      connect (overlays subgraphs) declarationGraph
       where
         declarationGraph =
           overlay (vertex name) $ overlays do
