@@ -15,7 +15,6 @@ import Algebra.Graph.AdjacencyMap.Algorithm ( dfs )
 import Algebra.Graph.Export.Dot
 
 -- base
-import Debug.Trace
 import Control.Monad ( guard, unless, when )
 import Control.Monad.IO.Class ( liftIO )
 import Data.Bool

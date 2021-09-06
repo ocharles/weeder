@@ -188,7 +188,7 @@ analyseNode node@NodeF{ sourcedNodeInfo, nodeChildren, nodeSpan } analysisState 
       -- This node doesn't declare anything, so inherit any declarations from
       -- child nodes, and bubble up uses and declarations.
       NodeAnalysis
-        { nodeDeclarations = childDeclarations
+        { nodeDeclarations = concat [childDeclarations, evidenceDeclarations]
         , nodeUses = transitiveUses
         , nodeDeclares = transitiveDeclares
         }
@@ -198,7 +198,7 @@ analyseNode node@NodeF{ sourcedNodeInfo, nodeChildren, nodeSpan } analysisState 
       -- declaration begins a new tree, whose children are all declarations
       -- in nodes below this node.
       NodeAnalysis
-        { nodeDeclarations = xs
+        { nodeDeclarations = concat [xs, evidenceDeclarations]
         , nodeUses = []
         , nodeDeclares = []
         }
@@ -239,15 +239,7 @@ analyseNode node@NodeF{ sourcedNodeInfo, nodeChildren, nodeSpan } analysisState 
         AnalysingModule ->
           -- If we're analysing the module as a whole, we need to be on the
           -- look out for dictionary declarations.
-          concat
-            [ evidenceBindings & map \(name, uses) -> pure Declaration
-                { name, uses
-                , declType = "ModuleEvidence"
-                , span = nodeSpan
-                , userDeclared = False
-                }
-            , childDeclarations
-            ]
+          childDeclarations
 
         _ ->
           case newMode of
@@ -263,6 +255,14 @@ analyseNode node@NodeF{ sourcedNodeInfo, nodeChildren, nodeSpan } analysisState 
               }
 
             Nothing -> []
+
+    evidenceDeclarations =
+      evidenceBindings & map \(name, uses) -> pure Declaration
+        { name, uses
+        , declType = "ModuleEvidence"
+        , span = nodeSpan
+        , userDeclared = False
+        }
 
     transitiveUses :: [Name]
     transitiveUses = ourUses ++ concatMap nodeUses nodeChildren'
