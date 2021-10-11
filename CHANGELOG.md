@@ -1,5 +1,9 @@
 ## Changelog for Weeder
 
+### [`2.3.0`][v2.3.0] - *2021-10-11*
+
+- Switch to GHC 9
+
 ### [`2.2.0`][v2.2.0] - *2021-08-28*
 
 This will likely be the last Weeder release before GHC 9.
@@ -197,6 +201,7 @@ maintained by Ollie Charles (@ocharles on GitHub).
 - Initial version
 
 
+[v2.3.0 ]: https://github.com/ocharles/weeder/releases/tag/2.3.0
 [v2.2.0 ]: https://github.com/ocharles/weeder/releases/tag/2.2.0
 [v2.1.3 ]: https://github.com/ocharles/weeder/releases/tag/2.1.3
 [v2.1.2 ]: https://github.com/ocharles/weeder/releases/tag/2.1.2
