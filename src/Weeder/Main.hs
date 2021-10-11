@@ -35,13 +35,13 @@ import System.Directory ( canonicalizePath, doesDirectoryExist, doesFileExist, d
 import System.FilePath ( isExtensionOf )
 
 -- ghc
-import HieBin ( HieFileResult( HieFileResult, hie_file_result ), readHieFileWithVersion )
-import HieTypes ( HieFile( hie_hs_file ), hieVersion )
-import Module ( moduleName, moduleNameString )
-import NameCache ( initNameCache, NameCache )
-import OccName ( occNameString )
-import SrcLoc ( RealSrcLoc, realSrcSpanStart, srcLocLine )
-import UniqSupply ( mkSplitUniqSupply )
+import GHC.Iface.Ext.Binary ( HieFileResult( HieFileResult, hie_file_result ), NameCacheUpdater( NCU ), readHieFileWithVersion )
+import GHC.Iface.Ext.Types ( HieFile( hie_hs_file ), hieVersion )
+import GHC.Unit.Module ( moduleName, moduleNameString )
+import GHC.Types.Name.Cache ( initNameCache, NameCache )
+import GHC.Types.Name ( occNameString )
+import GHC.Types.SrcLoc ( RealSrcLoc, realSrcSpanStart, srcLocLine )
+import GHC.Types.Unique.Supply ( mkSplitUniqSupply )
 
 -- regex-tdfa
 import Text.Regex.TDFA ( (=~) )
@@ -218,9 +218,9 @@ getFilesIn ext path = do
 -- | Read a .hie file, exiting if it's an incompatible version.
 readCompatibleHieFileOrExit :: NameCache -> FilePath -> IO HieFile
 readCompatibleHieFileOrExit nameCache path = do
-  res <- readHieFileWithVersion (\ (v, _) -> v == hieVersion) nameCache path
+  res <- readHieFileWithVersion (\(v, _) -> v == hieVersion) (NCU (\f -> return $ snd $ f nameCache)) path
   case res of
-    Right ( HieFileResult{ hie_file_result }, _ ) ->
+    Right HieFileResult{ hie_file_result } ->
       return hie_file_result
     Left ( v, _ghcVersion ) -> do
       putStrLn $ "incompatible hie file: " <> path
@@ -241,3 +241,4 @@ infixr 5 ==>
 (==>) :: Bool -> Bool -> Bool
 True  ==> x = x
 False ==> _ = True
+
