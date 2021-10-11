@@ -143,8 +143,8 @@ mainWithConfig hieExt hieDirectories requireHsFiles Config{ rootPatterns, typeCl
           then foldMap (pure . toASTs) (getAsts (hie_asts hieFileResult))
           else []
 
-  -- for_ analysis \a ->
-  --   for_ (nodeDeclarations a) (putStrLn . Tree.drawTree . fmap show)
+  for_ analysis \a ->
+    for_ (nodeDeclarations a) (putStrLn . Tree.drawTree . fmap show)
 
   let
     allDeclarations = Set.fromList do
@@ -169,15 +169,16 @@ mainWithConfig hieExt hieDirectories requireHsFiles Config{ rootPatterns, typeCl
 
     dead = allDeclarations Set.\\ reachableSet
 
-  -- putStrLn $ export (defaultStyle show) g
+  putStrLn $ export (defaultStyle show) g
+  return ()
 
   -- putStrLn "***"
   -- mapM_ print roots
   -- putStrLn "***"
-  for_ dead \name ->
-    case nameModule_maybe name of
-      Just m -> putStrLn $ moduleNameString (moduleName m) <> "." <> occNameString (getOccName name)
-      Nothing -> return ()
+  -- for_ dead \name ->
+  --   case nameModule_maybe name of
+  --     Just m -> putStrLn $ moduleNameString (moduleName m) <> "." <> occNameString (getOccName name)
+  --     Nothing -> return ()
 
   --   warnings =
   --     Map.unionsWith (++) $

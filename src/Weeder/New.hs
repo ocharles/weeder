@@ -17,6 +17,7 @@
 
 module Weeder.New where
 
+import Debug.Trace
 import Algebra.Graph.AdjacencyMap ( AdjacencyMap, vertex, edge, overlay, overlays, connect, vertexList )
 import Algebra.Graph.AdjacencyMap.Algorithm ( dfs )
 import Control.Monad ( guard )
@@ -32,13 +33,14 @@ import Data.Tree ( Forest )
 import Data.Tree qualified as Tree
 import GHC.Data.FastString ( FastString )
 import GHC.Generics ( Generic )
+import GHC.Iface.Ext.Utils
 import GHC.Iface.Ext.Binary ( HieFileResult( HieFileResult ), hie_file_result, NameCacheUpdater( NCU ), readHieFile )
 import GHC.Iface.Ext.Types
   ( ContextInfo( Decl, EvidenceVarBind, MatchBind, RecField, EvidenceVarUse, Use )
   , ContextInfo( TyDecl )
   , DeclType( ConDec, SynDec, DataDec )
   , EvBindDeps( EvBindDeps )
-  , EvVarSource( EvLetBind )
+  , EvVarSource( EvInstBind, EvLetBind )
   , HieAST( Node )
   , HieFile( HieFile )
   , IdentifierDetails( IdentifierDetails )
@@ -57,7 +59,7 @@ import GHC.Iface.Ext.Types
   , nodeIdentifiers
   , sourcedNodeInfo, nodeSpan, nodeChildren
   )
-import GHC.Types.Name ( Name, nameStableString, nameUnique )
+import GHC.Types.Name ( Name, nameStableString, nameUnique, getOccName, occNameString )
 import GHC.Types.Name.Cache ( initNameCache )
 import GHC.Types.SrcLoc ( RealSrcSpan )
 import GHC.Types.Unique.Supply ( mkSplitUniqSupply )
@@ -134,6 +136,7 @@ data NodeAnalysis = NodeAnalysis
     nodeUses :: [Name]
   , -- | All 'Identifier's a given 'HieAST' node declares, include transitive uses.
     nodeDeclares :: [Name]
+  , propagatedDataTypeNames :: [Name]
   }
   deriving stock Show
 
@@ -165,12 +168,20 @@ data AnalysisMode
     AnalysingTypeAlias
   | -- | We've entered a type signature
     AnalysingTypeSignature
+  | -- | A derived instance declaration
+    AnalysingDerivedInstance
   deriving stock Show
 
 
 data AnalysisState = AnalysisState
-  { uses :: [Name] -- ^ All identifiers currently being referred to
-  , mode :: AnalysisMode -- ^ The current mode of analysis
+  { -- | All identifiers currently being referred to
+    uses :: [Name]
+  , -- | The current mode of analysis
+    mode :: AnalysisMode
+  , -- | A bit of a hack, but when we see a derived 'Generic' instance, we add
+    -- implicit dependencies from that instance to all names in the data type
+    -- (fields and constructors).
+    dataTypeNames :: [Name]
   }
 
 
@@ -178,6 +189,7 @@ initialAnalysisState :: AnalysisState
 initialAnalysisState = AnalysisState
   { uses = []
   , mode = AnalysingTop
+  , dataTypeNames = []
   }
 
 
@@ -191,6 +203,7 @@ analyseNode node@NodeF{ sourcedNodeInfo, nodeChildren, nodeSpan } analysisState 
         { nodeDeclarations = concat [childDeclarations, evidenceDeclarations]
         , nodeUses = transitiveUses
         , nodeDeclares = transitiveDeclares
+        , propagatedDataTypeNames = propagatedDataTypeNames'
         }
 
     xs ->
@@ -201,6 +214,9 @@ analyseNode node@NodeF{ sourcedNodeInfo, nodeChildren, nodeSpan } analysisState 
         { nodeDeclarations = concat [xs, evidenceDeclarations]
         , nodeUses = []
         , nodeDeclares = []
+        , propagatedDataTypeNames = case mode' of
+            AnalysingData -> []
+            _             -> propagatedDataTypeNames'
         }
 
   where
@@ -208,18 +224,24 @@ analyseNode node@NodeF{ sourcedNodeInfo, nodeChildren, nodeSpan } analysisState 
       | node `hasAnnotation` ((== "DataDecl") . fst) = Just AnalysingData
       | node `hasAnnotation` ((== "ConDecl") . snd) = Just AnalysingConstructor
       | node `hasAnnotation` (== ("FunBind", "HsBindLR")) = case mode analysisState of
+          AnalysingDeriving    -> Just AnalysingDerivedInstance
           AnalysingBind        -> Just AnalysingNestedBind
+          AnalysingConstructor -> Just AnalysingConstructor
           AnalysingInstance    -> Nothing
           AnalysingNestedBind  -> Nothing
           _                    -> Just AnalysingBind
       | node `hasAnnotation` (== ("ClsInstD","InstDecl")) = Just AnalysingInstance
-      | node `hasAnnotation` (== ("HsDerivingClause","HsDerivingClause")) = Just AnalysingInstance
+      | node `hasAnnotation` (== ("HsDerivingClause","HsDerivingClause")) = Just AnalysingDeriving
       | node `hasAnnotation` (== ("SynDecl","TyClDecl")) = Just AnalysingTypeAlias
       | node `hasAnnotation` (== ("Module","Module")) = Just AnalysingModule
       | node `hasAnnotation` (== ("TypeSig","Sig")) =
           case mode analysisState of
             AnalysingBind -> Nothing
-            _ -> Just AnalysingTypeSignature
+            _             -> Just AnalysingTypeSignature
+      | node `hasAnnotation` (== ("AbsBinds", "HsBindLR")) =
+          case mode analysisState of
+            AnalysingDeriving -> Just AnalysingDerivedInstance
+            _                 -> Nothing
       | otherwise = Nothing
 
     mode' = fromMaybe (mode analysisState) newMode
@@ -227,6 +249,7 @@ analyseNode node@NodeF{ sourcedNodeInfo, nodeChildren, nodeSpan } analysisState 
     analysisState' = analysisState
       { mode = mode'
       , uses = transitiveUses
+      , dataTypeNames = dataTypeNames analysisState <> propagatedDataTypeNames'
       }
 
     nodeChildren' = map (\f -> f analysisState') nodeChildren
@@ -247,7 +270,7 @@ analyseNode node@NodeF{ sourcedNodeInfo, nodeChildren, nodeSpan } analysisState 
               { rootLabel = Declaration
                   { name
                   , declType = show mode'
-                  , uses = transitiveUses
+                  , uses = extraUses <> transitiveUses
                   , span = nodeSpan
                   , userDeclared = True
                   }
@@ -264,21 +287,35 @@ analyseNode node@NodeF{ sourcedNodeInfo, nodeChildren, nodeSpan } analysisState 
         , userDeclared = False
         }
 
+    extraUses = case mode' of
+      AnalysingDerivedInstance | isStockInstance -> dataTypeNames analysisState'
+      _                                          -> []
+      where
+        isStockInstance = ourUses & any \name ->
+          occNameString (getOccName name) `elem` ["Bounded","Enum","Generic","Read"]
+
     transitiveUses :: [Name]
     transitiveUses = ourUses ++ concatMap nodeUses nodeChildren'
+
+    ourUses = do
+      Identifier{ identifierName, contextInfo } <- identifiersHere
+
+      guard do
+        contextInfo & any \case
+          Use                       -> True
+          EvidenceVarUse            -> True
+          RecField RecFieldAssign _ -> True
+          RecField RecFieldMatch  _ -> True
+          _                         -> False
+
+      return identifierName
+
+    propagatedDataTypeNames' :: [Name]
+    propagatedDataTypeNames' = here ++ concatMap propagatedDataTypeNames nodeChildren'
       where
-        ourUses = do
-          Identifier{ identifierName, contextInfo } <- identifiersHere
-
-          guard do
-            contextInfo & any \case
-              Use                       -> True
-              EvidenceVarUse            -> True
-              RecField RecFieldAssign _ -> True
-              RecField RecFieldMatch  _ -> True
-              _                         -> False
-
-          return identifierName
+        here = case mode' of
+          AnalysingConstructor -> declaredNames
+          _                    -> []
 
     transitiveDeclares :: [Name]
     transitiveDeclares = declaredNames ++ concatMap nodeDeclares nodeChildren'
@@ -310,13 +347,18 @@ analyseNode node@NodeF{ sourcedNodeInfo, nodeChildren, nodeSpan } analysisState 
               -- in 'EvidenceVarBind' identifiers, as these name the instance
               -- dictionary. Nothing in a type class instance can really be "dead",
               -- so there's no need to find these declarations.
-              EvidenceVarBind _ ModuleScope _ -> True
-              _                               -> False
+              EvidenceVarBind (EvInstBind _ _) ModuleScope _ -> True
+              _                                              -> False
 
-            AnalysingDeriving -> \case
+            AnalysingDeriving -> \_ ->
+              -- Instance declarations should be found in
+              -- AnalysingDerivedInstance.
+              False
+
+            AnalysingDerivedInstance -> \case
               -- Find any instance declarations from deriving clauses.
-              EvidenceVarBind _ ModuleScope _ -> True
-              _                               -> False
+              EvidenceVarBind (EvInstBind _ _) ModuleScope _ -> True
+              _                                              -> False
 
             AnalysingData -> \case
               -- If we're analysing a data declaration, we need to find the name of
@@ -332,12 +374,12 @@ analyseNode node@NodeF{ sourcedNodeInfo, nodeChildren, nodeSpan } analysisState 
 
             AnalysingBind -> \case
               MatchBind               -> True
-              RecField RecFieldDecl _ -> True
               _                       -> False
 
             AnalysingConstructor -> \case
-              Decl ConDec _ -> True
-              _             -> False
+              Decl ConDec _           -> True
+              RecField RecFieldDecl _ -> True
+              _                       -> False
 
             AnalysingModule -> \case
               -- In module analysis, we need to find evidence bindings. These are
@@ -383,7 +425,16 @@ loadHie path = do
     return $ initNameCache uniqSupply []
 
   HieFileResult{ hie_file_result } <- readHieFile (NCU (\f -> return $ snd $ f nameCache)) path
-  let HieFile{ hie_asts } = hie_file_result
+  let hieFile@HieFile{ hie_asts } = hie_file_result
+
+  let refMap = generateReferencesMap $ getAsts hie_asts
+  print $ fmap (showSDocUnsafe . ppr) $ Map.elems refMap
+  let names = Map.keys refMap & concatMap \case
+        Left _ -> []
+        Right n -> [n]
+  mapM_ print $ zip [0..] $ map (showSDocUnsafe . ppr) names
+  mapM_ (putStrLn . Tree.drawTree . fmap (showSDocUnsafe . ppr)) (getEvidenceTree refMap (names !! 104))
+
   return $ toList $ getAsts hie_asts
 
 
