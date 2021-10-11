@@ -83,29 +83,11 @@ see something like the following:
 
 ``` shell
 $ weeder
-
-src/Dhall/TH.hs:187:1: error: toDeclaration is unused
-
-     185 ┃     -> HaskellType (Expr s a)
-     186 ┃     -> Q Dec
-     187 ┃ toDeclaration haskellTypes MultipleConstructors{..} = do
-     188 ┃     case code of
-     189 ┃         Union kts -> do
-
-    Delete this definition or add ‘Dhall.TH.toDeclaration’ as a root to fix this error.
-
-
-src/Dhall/TH.hs:106:1: error: toNestedHaskellType is unused
-
-     104 ┃     -- ^ Dhall expression to convert to a simple Haskell type
-     105 ┃     -> Q Type
-     106 ┃ toNestedHaskellType haskellTypes = loop
-     107 ┃   where
-     108 ┃     loop dhallType = case dhallType of
-
-    Delete this definition or add ‘Dhall.TH.toNestedHaskellType’ as a root to fix this error.
+src/Dhall/TH.hs:187: toDeclaration
+src/Dhall/TH.hs:196: toNestedHaskellType
 ```
 
+… which indicates the location of two unused symbols.
 (Please note these warnings are just for demonstration and not necessarily weeds
 in the Dhall project).
 
