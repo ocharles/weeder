@@ -264,7 +264,8 @@ topLevelAnalysis n@Node{ nodeChildren } = do
 
 analyseBinding :: ( Alternative m, MonadState Analysis m ) => HieAST a -> m ()
 analyseBinding n@Node{ nodeSpan, sourcedNodeInfo } = do
-  guard $ any (Set.member ("FunBind", "HsBindLR") . nodeAnnotations) $ getSourcedNodeInfo sourcedNodeInfo
+  let bindAnns = Set.fromList [("FunBind", "HsBindLR"), ("PatBind", "HsBindLR")]
+  guard $ any (not . Set.disjoint bindAnns . nodeAnnotations) $ getSourcedNodeInfo sourcedNodeInfo
 
   for_ ( findDeclarations n ) \d -> do
     define d nodeSpan
