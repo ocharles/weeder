@@ -394,3 +394,4 @@ nameToDeclaration :: Name -> Maybe Declaration
 nameToDeclaration name = do
   m <- nameModule_maybe name
   return Declaration { declModule = m, declOccName = nameOccName name }
+

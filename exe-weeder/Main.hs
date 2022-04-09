@@ -1,8 +1,7 @@
 module Main ( main ) where
 
--- weeder
-import qualified Weeder.Main
+import qualified Weeder.New2
 
 
 main :: IO ()
-main = Weeder.Main.main
+main = Weeder.New2.main
