@@ -26,7 +26,6 @@ library
     , filepath
     , ghc
     , recursion-schemes
-    , tomland
   hs-source-dirs: src
   exposed-modules:
     Weeder.New2

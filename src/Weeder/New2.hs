@@ -13,92 +13,31 @@
 
 module Weeder.New2 where
 
-import Data.Monoid
-import Control.Applicative ( (<|>), Alternative )
 import Data.Functor
 import GHC.Unit.Module ( moduleName )
-import Data.Foldable ( toList, for_, asum )
+import Data.Foldable ( toList, for_ )
 import GHC.Unit.Module.Name ( moduleNameString )
 import Data.Set ( Set )
 import Text.Regex.TDFA ( (=~) )
 import qualified Data.Set as Set
-import Algebra.Graph ( Graph, edge, empty, overlay, vertex, vertexList )
+import Algebra.Graph ( Graph, edge )
 import GHC.Types.Unique.Supply ( mkSplitUniqSupply )
 import Algebra.Graph.ToGraph ( dfs )
 import Control.Monad ( guard )
 import Data.Function ( (&) )
-import Data.Maybe ( listToMaybe )
 import GHC.Generics ( Generic )
 import GHC.Types.Name ( Name, nameModule_maybe, occNameString, getOccName, nameOccName )
 import qualified Data.Map.Strict as Map
-import GHC.Iface.Ext.Ast
 import GHC.Iface.Ext.Binary
 import System.Exit ( exitFailure )
 import Data.List ( isSuffixOf, find )
 import Control.Monad.IO.Class ( liftIO )
-import GHC.Types.Name.Cache ( initNameCache, NameCache )
+import GHC.Types.Name.Cache ( initNameCache )
 import Data.IORef
 import GHC.Iface.Ext.Types
 import Data.Functor.Foldable
 import System.FilePath ( isExtensionOf )
 import System.Directory ( canonicalizePath, doesDirectoryExist, doesFileExist, doesPathExist, listDirectory, withCurrentDirectory )
-
-
-data Declaration name
-  = FunctionDeclaration
-      { functionName :: name
-      , functionUses :: [name]
-      }
-  | InstanceDeclaration
-      { instanceUses :: [name]
-      }
-  | ClassDeclaration
-      { className :: name
-      , classUses :: [name]
-      }
-  | DataDeclaration
-      { typeName :: name
-      , constructors :: [Constructor name]
-      }
-  deriving stock (Eq, Functor, Ord, Show)
-
-
-data Constructor name = Constructor 
-  { constructorName :: name 
-  , constructorFields :: [Field name]
-  }
-  deriving stock (Eq, Functor, Ord, Show)
-
-
-data Field name = Field
-  { fieldName :: name
-  , fieldUses :: [name]
-  }
-  deriving stock (Eq, Functor, Ord, Show)
-
-
--- | A list of names in level-order from a given HIE node.
-bfsNames :: HieASTF f [[NameWithContext Name]] -> [[NameWithContext Name]]
-bfsNames NodeF{ sourcedNodeInfo, nodeChildren } =
-  namesHere : foldr (zipWith' (++)) [] nodeChildren
-  where
-    namesHere = 
-      getSourcedNodeInfo sourcedNodeInfo & foldMap \nodeInfo ->
-        nodeIdentifiers nodeInfo & 
-          Map.foldMapWithKey \identifier identifierDetails ->
-            case identifier of
-              Left _moduleName -> []
-              Right name       -> 
-                pure NameWithContext
-                  { name
-                  , context = identInfo identifierDetails 
-                  }
-
-
-zipWith' :: (a -> a -> a) -> [a] -> [a] -> [a]
-zipWith' _ xs     []     = xs
-zipWith' _ []     xs     = xs
-zipWith' f (x:xs) (y:ys) = f x y : zipWith' f xs ys
 
 
 data NameWithContext name = NameWithContext
@@ -112,24 +51,50 @@ instance Show name => Show (NameWithContext name) where
   show NameWithContext{ name } = show name
 
 
-data DataType name = DataType{ name :: name, uses :: [ name ] }
+-- | A list of names in level-order from a given HIE node.
+bfsNames :: HieASTF f [[NameWithContext Name]] -> [[NameWithContext Name]]
+bfsNames NodeF{ sourcedNodeInfo, nodeChildren } =
+  namesHere : foldr (zipWith' (++)) [] nodeChildren
+  where
+    namesHere =
+      getSourcedNodeInfo sourcedNodeInfo & foldMap \nodeInfo ->
+        nodeIdentifiers nodeInfo &
+          Map.foldMapWithKey \identifier identifierDetails ->
+            case identifier of
+              Left _moduleName -> []
+              Right name       ->
+                pure NameWithContext
+                  { name
+                  , context = identInfo identifierDetails
+                  }
+
+
+zipWith' :: (a -> a -> a) -> [a] -> [a] -> [a]
+zipWith' _ xs     []     = xs
+zipWith' _ []     xs     = xs
+zipWith' f (x:xs) (y:ys) = f x y : zipWith' f xs ys
+
+
+data DataType name = DataType
+  { name :: name
+  , constructors :: [Constructor name]
+  }
   deriving stock (Eq, Functor, Ord, Show)
 
 
-findDataTypes 
-  :: [name]
-  -> [NameWithContext name] 
+findDataTypes
+  :: [NameWithContext name]
+  -> [Constructor name]
   -> HieASTF x [DataType name]
   -> [DataType name]
-findDataTypes uses names NodeF{ sourcedNodeInfo, nodeChildren } = 
-  foldMap pure typeHere <> mconcat nodeChildren 
+findDataTypes names constructors NodeF{ sourcedNodeInfo, nodeChildren } =
+  foldMap pure typeHere <> mconcat nodeChildren
   where
     typeHere = do
-      guard $ 
-        foldMap nodeAnnotations (getSourcedNodeInfo sourcedNodeInfo) & 
-          any \(_, typeName) -> 
+      guard $
+        foldMap nodeAnnotations (getSourcedNodeInfo sourcedNodeInfo) &
+          any \(NodeAnnotation _ typeName) ->
             typeName == "TyClDecl"
-          
 
       NameWithContext{ name } <-
         names & find \NameWithContext{ context } -> do
@@ -137,357 +102,309 @@ findDataTypes uses names NodeF{ sourcedNodeInfo, nodeChildren } =
             Decl DataDec _ -> True
             _              -> False
 
-      return DataType{ uses, name }
-        
-
--- findDeclarations 
---   :: [Name]
---   -> HieASTF a (Set Name, Set (Declaration Name)) 
---   -> Set (Declaration Name)
--- findDeclarations = undefined
+      return DataType{ name, constructors }
 
 
--- findUses :: HieASTF a (Set Name) -> Set Name
--- findUses = undefined
-
-
-data ModuleAnalysis name = ModuleAnalysis
-  { types :: [name]
-  , names :: [[NameWithContext name]]
-  , dataTypes :: [DataType name]
-  , namesInUse :: [name]
+data Constructor name = Constructor
+  { constructorName :: name
+  , constructorFields :: [Field name]
   }
-  deriving stock (Functor, Show)
+  deriving stock (Eq, Functor, Ord, Show)
 
 
-instance Semigroup (ModuleAnalysis name) where
-  x <> y = ModuleAnalysis
-    { types = types x <> types y 
-    , names = names x <> names y
-    , dataTypes = dataTypes x <> dataTypes y
-    , namesInUse = namesInUse x <> namesInUse y
-    }
+findConstructors
+  :: [NameWithContext name]
+  -> [Field name]
+  -> HieASTF x [Constructor name]
+  -> [Constructor name]
+findConstructors names fields NodeF{ sourcedNodeInfo, nodeChildren } =
+  foldMap pure constructorsHere <> mconcat nodeChildren
+  where
+    constructorsHere = do
+      guard $
+        getSourcedNodeInfo sourcedNodeInfo & any \nodeInfo ->
+          nodeAnnotations nodeInfo & any \(NodeAnnotation _ con) ->
+            con == "ConDecl"
+
+      NameWithContext{ name = constructorName } <-
+        names & find \NameWithContext{ context } -> do
+          context & any \case
+            Decl ConDec _ -> True
+            _             -> False
+
+      return Constructor{ constructorName, constructorFields = fields }
 
 
-instance Monoid (ModuleAnalysis name) where
-  mempty = ModuleAnalysis
-    { types = []
-    , names = []
-    , dataTypes = []
-    , namesInUse = mempty
-    }
+data Field name = Field
+  { fieldName :: name
+  , fieldUses :: [name]
+  }
+  deriving stock (Eq, Functor, Ord, Show)
+
+
+findFields
+  :: [name]
+  -> [NameWithContext name]
+  -> HieASTF x [Field name]
+  -> [Field name]
+findFields uses names NodeF{ sourcedNodeInfo, nodeChildren } =
+  foldMap id fieldsHere <> mconcat nodeChildren
+  where
+    declaredNames =
+      names & filter \NameWithContext{ context } ->
+        context & any \case
+          RecField RecFieldDecl _ -> True
+          _                       -> False
+
+    fieldsHere = do
+      guard $
+        getSourcedNodeInfo sourcedNodeInfo & any \nodeInfo ->
+          nodeAnnotations nodeInfo & any \(NodeAnnotation _ con) ->
+            con == "ConDeclField"
+
+      Just $
+        declaredNames <&> \NameWithContext{ name } ->
+          Field{ fieldName = name, fieldUses = uses }
+
+
+data Function name = Function{ name :: name, uses :: [ name ] }
+  deriving stock (Eq, Functor, Ord, Show)
+
+
+findFunctions
+  :: [name]
+  -> [NameWithContext name]
+  -> HieASTF x [Function name]
+  -> [Function name]
+findFunctions uses names NodeF{ sourcedNodeInfo, nodeChildren } =
+  case functionHere of
+    Nothing -> mconcat nodeChildren
+    Just f  -> [f]
+  where
+    functionHere = do
+      guard $
+        getSourcedNodeInfo sourcedNodeInfo & any \nodeInfo ->
+          Set.member (NodeAnnotation "FunBind" "HsBindLR") (nodeAnnotations nodeInfo)
+
+      NameWithContext{ name } <-
+        names & find \NameWithContext{ context } -> do
+          context & any \case
+            ValBind _ _ _ -> True
+            _              -> False
+
+      return Function{ uses, name }
+
+
+data Class name = Class
+  { className :: name
+  , classUses :: [name]
+  }
+  deriving stock (Eq, Functor, Ord, Show)
+
+
+findClasses
+  :: [name]
+  -> [NameWithContext name]
+  -> HieASTF x [Class name]
+  -> [Class name]
+findClasses uses names NodeF{ sourcedNodeInfo, nodeChildren } =
+  foldMap pure classHere <> mconcat nodeChildren
+  where
+    classHere = do
+      guard $
+        getSourcedNodeInfo sourcedNodeInfo & any \nodeInfo ->
+          Set.member (NodeAnnotation "ClassDecl" "TyClDecl")
+            (nodeAnnotations nodeInfo)
+
+      NameWithContext{ name } <-
+        names & find \NameWithContext{ context } -> do
+          context & any \case
+            _ -> True
+
+      return Class{ className = name, classUses = uses }
+
+
+data Instance name = Instance
+  { instanceName :: name
+  , instanceUses :: [name]
+  }
+  deriving stock (Eq, Functor, Ord, Show)
+
+
+findInstances
+  :: [name]
+  -> [NameWithContext name]
+  -> HieASTF x [Instance name]
+  -> [Instance name]
+findInstances uses names NodeF{ sourcedNodeInfo, nodeChildren } =
+  foldMap pure instanceHere <> mconcat nodeChildren
+  where
+    instanceHere = do
+      guard $
+        getSourcedNodeInfo sourcedNodeInfo & any \nodeInfo ->
+          Set.member (NodeAnnotation "ClsInstD" "InstDecl")
+            (nodeAnnotations nodeInfo)
+
+      NameWithContext{ name } <-
+        names & find \NameWithContext{ context } -> do
+          context & any \case
+            _ -> True
+
+      return Instance{ instanceName = name, instanceUses = uses }
 
 
 collectUses :: HieASTF f [Name] -> [Name]
 collectUses NodeF{ sourcedNodeInfo, nodeChildren } =
   namesHere ++ concat nodeChildren
   where
-    namesHere = 
+    namesHere =
       getSourcedNodeInfo sourcedNodeInfo & foldMap \nodeInfo ->
-        nodeIdentifiers nodeInfo & 
+        nodeIdentifiers nodeInfo &
           Map.foldMapWithKey \identifier identifierDetails ->
             case identifier of
               Left _moduleName -> []
               Right name       -> do
-                guard $ Use `elem` identInfo identifierDetails 
+                guard $
+                  identInfo identifierDetails & any \case
+                    Use -> True
+                    RecField RecFieldAssign _ -> True
+                    RecField RecFieldOcc _ -> True
+                    _ -> False
+
                 pure name
+
+
+data ModuleAnalysis name = ModuleAnalysis
+  { names :: [[NameWithContext name]]
+  , dataTypes :: [DataType name]
+  , namesInUse :: [name]
+  , functions :: [Function name]
+  , constructors :: [Constructor name]
+  , fields :: [Field name]
+  , classes :: [Class name]
+  , instances :: [Instance name]
+  }
+  deriving stock (Functor, Show)
+
+
+instance Semigroup (ModuleAnalysis name) where
+  x <> y = ModuleAnalysis
+    { names = names x <> names y
+    , dataTypes = dataTypes x <> dataTypes y
+    , namesInUse = namesInUse x <> namesInUse y
+    , functions = functions x <> functions y
+    , instances = instances x <> instances y
+    , constructors =
+        mappend
+          (case x of ModuleAnalysis{ constructors } -> constructors)
+          (case y of ModuleAnalysis{ constructors } -> constructors)
+    , fields =
+        mappend
+          (case x of ModuleAnalysis{ fields } -> fields)
+          (case y of ModuleAnalysis{ fields } -> fields)
+    , classes =
+        mappend
+          (case x of ModuleAnalysis{ classes } -> classes)
+          (case y of ModuleAnalysis{ classes } -> classes)
+    }
+
+
+instance Monoid (ModuleAnalysis name) where
+  mempty = ModuleAnalysis
+    { names = []
+    , dataTypes = []
+    , namesInUse = mempty
+    , functions = mempty
+    , constructors = mempty
+    , fields = mempty
+    , classes = mempty
+    , instances = mempty
+    }
 
 
 analyze :: HieAST a -> ModuleAnalysis Name
 analyze = fold \node -> do
   let names' = bfsNames (names <$> node)
 
-  let namesInUseHere = collectUses $ namesInUse <$> node
+      namesInUseHere = collectUses $ namesInUse <$> node
 
-  let dataTypes' = 
-        findDataTypes namesInUseHere (concat names') (dataTypes <$> node)
+      dataTypes' =
+        findDataTypes
+          (concat names')
+          constructors'
+          (dataTypes <$> node)
 
-  let declarationsHere = not $ null dataTypes'
+      constructors' =
+        findConstructors
+          (concat names')
+          fields'
+          (node <&> \ModuleAnalysis{ constructors } -> constructors)
 
-  let namesInUse' 
+      fields' =
+        findFields namesInUseHere (concat names') (fields <$> node)
+
+      functions' =
+        findFunctions namesInUseHere (concat names') (functions <$> node)
+
+      classes' =
+        findClasses namesInUseHere (concat names') (classes <$> node)
+
+      instances' =
+        findInstances namesInUseHere (concat names') (instances <$> node)
+
+      declarationsHere = not $ null dataTypes'
+
+      namesInUse'
         | declarationsHere = []
         | otherwise        = namesInUseHere
 
   ModuleAnalysis
     { names = names'
     , dataTypes = dataTypes'
-    , types = []
     , namesInUse = namesInUse'
+    , functions = functions'
+    , constructors = constructors'
+    , fields = fields'
+    , classes = classes'
+    , instances = instances'
     }
 
 
 
--- moduleDeclarations :: HieAST x -> Set (Declaration Name)
--- moduleDeclarations = 
---   para \node@NodeF{ nodeChildren } ->
---     case parseNodeType $ embed $ fst <$> node of
---       Just (ValueBinding declarationName) -> 
---         Set.singleton 
---           FunctionDeclaration
---             { functionName = declarationName
---             , functionUses = toList $ references $ embed $ fst <$> node
---             }
-
---       Just InstanceNode -> 
---         Set.singleton 
---           InstanceDeclaration
---             { instanceUses = toList $ references $ embed $ fst <$> node
---             }
-
---       Just (DataNode name) -> 
---         Set.singleton 
---           DataDeclaration
---             { typeName = name
---             , constructors = findConstructors $ embed $ fst <$> node
---             }
-
---       Just (ClassNode name) -> 
---         Set.singleton 
---           ClassDeclaration
---             { className = name
---             , classUses = toList $ references $ embed $ fst <$> node
---             }
-
---       _ ->
---         foldMap snd nodeChildren
+data Analysis name = Analysis
+  { implicitRoots :: Set name
+  , dependencyGraph :: Graph name
+  , allDeclarations :: Set name
+  }
 
 
--- findConstructors :: HieAST x -> [Constructor Name]
--- findConstructors = para go where
---   go node@NodeF{ nodeChildren, sourcedNodeInfo } =
---     case isConstructor of
---       True -> 
---         conName & foldMap \conName ->
---           pure Constructor
---             { constructorName = conName
---             , constructorFields = concatMap findFields $ fst <$> nodeChildren
---             }
---         where
---           conName = 
---             listToMaybe $ embed (fst <$> node) & findNearestName \case
---               Decl ConDec _ -> True
---               _ -> False
+instance Ord name => Semigroup (Analysis name) where
+  x <> y = Analysis
+    { implicitRoots = implicitRoots x <> implicitRoots y
+    , dependencyGraph = dependencyGraph x <> dependencyGraph y
+    , allDeclarations = allDeclarations x <> allDeclarations y
+    }
 
---       False -> 
---         concatMap snd nodeChildren
-
---     where
---       isConstructor =
---         getSourcedNodeInfo sourcedNodeInfo & any \nodeInfo ->
---           nodeAnnotations nodeInfo & any \(_, con ->
---             con == "ConDecl"
+instance Ord name => Monoid (Analysis name) where
+  mempty = Analysis mempty mempty mempty
 
 
--- findFields :: HieAST x -> [Field Name]
--- findFields = para go where
---   go node@NodeF{ nodeChildren, sourcedNodeInfo } =
---     case isField of
---       True -> 
---         names <&> \name -> 
---           Field
---             { fieldName = name
---             , fieldUses = toList $ sourceReferences $ embed $ fst <$> node
---             }
---         where
---           names = toList $ Set.fromList $ embed (fst <$> node) & findNearestName \case
---             RecField RecFieldDecl _ -> True
---             _ -> False
-
-
---       False -> 
---         concatMap snd nodeChildren
-
---     where
---       isField =
---         getSourcedNodeInfo sourcedNodeInfo & any \nodeInfo ->
---           nodeAnnotations nodeInfo & any \(_, con) ->
---             con == "ConDeclField"
-
-
--- data Analysis name = Analysis
---   { implicitRoots :: Set name
---   , dependencyGraph :: Graph name
---   , allDeclarations :: Set name
---   }
-
-
--- instance Ord name => Semigroup (Analysis name) where
---   x <> y = Analysis
---     { implicitRoots = implicitRoots x <> implicitRoots y
---     , dependencyGraph = dependencyGraph x <> dependencyGraph y
---     , allDeclarations = allDeclarations x <> allDeclarations y
---     }
-
--- instance Ord name => Monoid (Analysis name) where
---   mempty = Analysis mempty mempty mempty
-
-
--- analyzeDeclarations :: (Foldable f, Ord name) => f (Declaration name) -> Analysis name
--- analyzeDeclarations = foldMap \case
---   FunctionDeclaration{ functionName, functionUses } -> 
---     Analysis
---       { implicitRoots = mempty
---       , dependencyGraph = foldMap (edge functionName) functionUses
---       , allDeclarations = Set.singleton functionName
---       }
-      
---   InstanceDeclaration{ instanceUses } -> 
---     Analysis
---       { implicitRoots = Set.fromList instanceUses
---       , dependencyGraph = mempty
---       , allDeclarations = mempty
---       }
-
---   ClassDeclaration{ className, classUses } -> 
---     Analysis
---       { implicitRoots = Set.singleton className
---       , dependencyGraph = foldMap (edge className) classUses 
---       , allDeclarations = Set.singleton className
---       }
-
---   DataDeclaration{ typeName, constructors } ->
---     Analysis
---       { implicitRoots = mempty
---       , dependencyGraph =
---           constructors & foldMap \constructor ->
---             mconcat
---               [ -- Constructor usage keeps the type alive
---                 edge (constructorName constructor) typeName 
-
---               , constructorFields constructor & foldMap \field ->
---                   mconcat
---                     [ -- Field usage keeps a constructor alive
---                       edge (fieldName field) (constructorName constructor)
-                    
---                       -- Constructor usage keeps field alive
---                     , edge (constructorName constructor) (fieldName field)
---                     ]
---               ]
-
---       , allDeclarations = mconcat
---           [ Set.singleton typeName 
---           , constructors & foldMap \constructor ->
---               mconcat
---                 [ Set.singleton $ constructorName constructor
---                 , constructorFields constructor & foldMap \field ->
---                     Set.singleton $ fieldName field
---                 ]
---           ]
---       }
-
-
--- references :: HieAST x -> Set Name
--- references = fold go where
---   go node@NodeF{ nodeChildren } = ourUses <> mconcat nodeChildren
---     where
---       ourUses = Set.fromList $ node & filteredIdentifiers \case
---         Use -> True
---         RecField RecFieldAssign _ -> True
---         RecField RecFieldMatch _ -> True
---         EvidenceVarUse -> True
---         _   -> False
-
-
--- sourceReferences :: HieAST x -> [Name]
--- sourceReferences = fold go where
---   go node@NodeF{ nodeChildren, sourcedNodeInfo } = 
---     ourUses sourcedNodeInfo <> mconcat nodeChildren
-
---   ourUses sourcedNodeInfo = 
---     Map.lookup SourceInfo (getSourcedNodeInfo sourcedNodeInfo) & 
---       foldMap \nodeInfo ->
---         nodeIdentifiers nodeInfo & 
---           Map.foldMapWithKey \identifier identifierDetails ->
---             case identifier of
---               Left _moduleName -> 
---                 []
-
---               Right name -> do
---                 guard $ any p $ identInfo identifierDetails
---                 pure name
-
---   p = \case
---     Use -> True
---     _ -> False
-
-
--- filteredIdentifiers :: (ContextInfo -> Bool) -> HieASTF a b -> [Name]
--- filteredIdentifiers p NodeF{ sourcedNodeInfo } =
---   getSourcedNodeInfo sourcedNodeInfo & foldMap \nodeInfo ->
---     nodeIdentifiers nodeInfo & Map.foldMapWithKey \identifier identifierDetails ->
---       case identifier of
---         Left _moduleName -> 
---           []
-
---         Right name -> do
---           guard $ any p $ identInfo identifierDetails
---           pure name
-
-
--- findNearestName 
---   :: (ContextInfo -> Bool) -> HieAST a -> [Name]
--- findNearestName p = fold go where
---   go NodeF{ sourcedNodeInfo, nodeChildren } = nameHere <|> asum nodeChildren
---     where
---       nameHere =
---         getSourcedNodeInfo sourcedNodeInfo & foldMap \nodeInfo ->
---           nodeIdentifiers nodeInfo & Map.foldMapWithKey \identifier identifierDetails ->
---             case identifier of
---               Right name | any p $ identInfo identifierDetails -> pure name
---               _ -> mempty
-
-
-
--- -- | A classification of HIE nodes
--- data NodeType
---   = InstanceNode
-
---     -- | A node that begins a declaration.
---   | ValueBinding Name
-
---   | DataNode Name
---   | ClassNode Name
---   | EvidenceBinding Name [Name]
-
-
--- parseNodeType :: HieAST a -> Maybe NodeType
--- parseNodeType node@Node{ sourcedNodeInfo } = 
---       instanceDeclaration 
---   <|> valueBinding
---   <|> dataDecl
---   <|> classDecl
---   <|> evidenceBinding
---   where
---     evidenceBinding = Nothing
-
---     classDecl = ClassNode <$> do
---       guard $ getSourcedNodeInfo sourcedNodeInfo & any \nodeInfo ->
---         Set.member ("ClassDecl", "TyClDecl") $ nodeAnnotations nodeInfo
-
---       listToMaybe $ node & findNearestName \case
---         Decl ClassDec _ -> True
---         _ -> False
-    
---     dataDecl = DataNode <$> do
---       guard $ getSourcedNodeInfo sourcedNodeInfo & any \nodeInfo ->
---         Set.member ("DataDecl", "TyClDecl") $ nodeAnnotations nodeInfo
-
---       listToMaybe $ node & findNearestName \case
---         Decl DataDec _ -> True
---         _ -> False
-
---     instanceDeclaration = InstanceNode <$ do
---       guard $ getSourcedNodeInfo sourcedNodeInfo & any \nodeInfo ->
---         Set.member ("ClsInstD", "InstDecl") $ nodeAnnotations nodeInfo
-
---     valueBinding = ValueBinding <$> do
---       guard $ getSourcedNodeInfo sourcedNodeInfo & any \nodeInfo ->
---         Set.member ("FunBind", "HsBindLR") $ nodeAnnotations nodeInfo
-
---       listToMaybe $ node & findNearestName \case
---         ValBind _ _ _ -> True
---         MatchBind -> True
---         _ -> False
+finalizeAnalysis :: Ord name => ModuleAnalysis name -> Analysis name
+finalizeAnalysis ModuleAnalysis{..} = Analysis
+  { implicitRoots =
+      instances & foldMap \Instance{ instanceName } ->
+        Set.singleton instanceName
+  , dependencyGraph = mconcat
+      [ functions & foldMap \Function{ name, uses } ->
+          foldMap (edge name) uses
+      , instances & foldMap \Instance{ instanceName, instanceUses } ->
+          foldMap (edge instanceName) instanceUses
+      ]
+  , allDeclarations = mconcat
+      [ functions & foldMap \Function{ name } ->
+          Set.singleton name
+      ]
+  }
 
 
 -- | This is the same as 'HieAST', but with recursion made explicit (it is the
@@ -534,33 +451,33 @@ main rootPatterns hieDirectories = do
         then foldMap analyze (getAsts (hie_asts hieFileResult))
         else mempty
 
-  mapM_ print $ dataTypes $
+  mapM_ print $ functions $
     decls <&> \name ->
       foldMap (\m -> moduleNameString (moduleName m) <> ".") (nameModule_maybe name) <>
       occNameString (nameOccName name)
 
-  -- let analysis = analyzeDeclarations decls
+  let analysis = finalizeAnalysis decls
 
-  -- let roots =
-  --       allDeclarations analysis & Set.filter \name ->
-  --         rootPatterns & any \pattern ->
-  --           nameModule_maybe name & any \m ->
-  --             (moduleNameString (moduleName m) <> "." <> occNameString (getOccName name)) =~ pattern
+  let roots =
+        allDeclarations analysis & Set.filter \name ->
+          rootPatterns & any \pattern ->
+            nameModule_maybe name & any \m ->
+              (moduleNameString (moduleName m) <> "." <> occNameString (getOccName name)) =~ pattern
 
-  -- -- for_ decls $ print . fmap \name -> 
-  -- --   foldMap (\m -> moduleNameString (moduleName m) <> ".") (nameModule_maybe name) <>
-  -- --   occNameString (nameOccName name)
+  -- for_ decls $ print . fmap \name ->
+  --   foldMap (\m -> moduleNameString (moduleName m) <> ".") (nameModule_maybe name) <>
+  --   occNameString (nameOccName name)
 
-  -- let reachableSet = Set.fromList $ dfs (toList (implicitRoots analysis <> roots)) (dependencyGraph analysis)
+  let reachableSet = Set.fromList $ dfs (toList (implicitRoots analysis <> roots)) (dependencyGraph analysis)
 
-  -- let dead = allDeclarations analysis Set.\\ reachableSet
+  let dead = allDeclarations analysis Set.\\ reachableSet
 
-  -- for_ dead \name -> do
-  --   for_ (nameModule_maybe name) \m -> do
-  --     putStr $ moduleNameString (moduleName m) <> "."
-  --     putStrLn $ occNameString $ nameOccName name
+  for_ dead \name -> do
+    for_ (nameModule_maybe name) \m -> do
+      putStr $ moduleNameString (moduleName m) <> "."
+      putStrLn $ occNameString $ nameOccName name
 
-  where 
+  where
     requireHsFiles = False
     hsFilePaths = []
     hieExt = ".hie"
