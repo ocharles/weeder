@@ -90,7 +90,7 @@ main = do
             )
         <*> switch
               ( long "require-hs-files"
-                  <> help "Requires that all .hie files have matching .hs files. This can help deal with skipping .hie files for Haskell modules that have since been removed"
+                  <> help "Skip stale .hie files with no matching .hs modules"
               )
 
     versionP = infoOption ( "weeder version "
