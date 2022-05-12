@@ -48,6 +48,7 @@ import qualified Data.Set as Set
 import Data.Generics.Labels ()
 
 -- ghc
+import GHC.Data.FastString ( unpackFS )
 import GHC.Types.Avail
   ( AvailInfo( Avail, AvailTC )
   , GreName( NormalGreName, FieldGreName )
@@ -61,7 +62,7 @@ import GHC.Iface.Ext.Types
   , HieASTs( HieASTs )
   , HieFile( HieFile, hie_asts, hie_exports, hie_module, hie_hs_file )
   , IdentifierDetails( IdentifierDetails, identInfo )
-  , NodeAnnotation( NodeAnnotation, nodeAnnotConstr, nodeAnnotType )
+  , NodeAnnotation( NodeAnnotation, nodeAnnotType )
   , NodeInfo( nodeIdentifiers, nodeAnnotations )
   , Scope( ModuleScope )
   , getSourcedNodeInfo
@@ -276,8 +277,8 @@ topLevelAnalysis n@Node{ nodeChildren } = do
 
 analyseBinding :: ( Alternative m, MonadState Analysis m ) => HieAST a -> m ()
 analyseBinding n@Node{ nodeSpan, sourcedNodeInfo } = do
-  let bindAnns = Set.fromList [(NodeAnnotation "FunBind" "HsBindLR"), (NodeAnnotation "PatBind" "HsBindLR")]
-  guard $ any (not . Set.disjoint bindAnns . nodeAnnotations) $ getSourcedNodeInfo sourcedNodeInfo
+  let bindAnns = Set.fromList [("FunBind", "HsBindLR"), ("PatBind", "HsBindLR")]
+  guard $ any (not . Set.disjoint bindAnns . Set.map unNodeAnnotation . nodeAnnotations) $ getSourcedNodeInfo sourcedNodeInfo
 
   for_ ( findDeclarations n ) \d -> do
     define d nodeSpan
@@ -287,21 +288,21 @@ analyseBinding n@Node{ nodeSpan, sourcedNodeInfo } = do
 
 analyseRewriteRule :: ( Alternative m, MonadState Analysis m ) => HieAST a -> m ()
 analyseRewriteRule n@Node{ sourcedNodeInfo } = do
-  guard $ any (Set.member (NodeAnnotation "HsRule" "RuleDecl") . nodeAnnotations) $ getSourcedNodeInfo sourcedNodeInfo
+  guard $ any (Set.member ("HsRule", "RuleDecl") . Set.map unNodeAnnotation . nodeAnnotations) $ getSourcedNodeInfo sourcedNodeInfo
 
   for_ ( uses n ) addImplicitRoot
 
 
 analyseInstanceDeclaration :: ( Alternative m, MonadState Analysis m ) => HieAST a -> m ()
 analyseInstanceDeclaration n@Node{ sourcedNodeInfo } = do
-  guard $ any (Set.member (NodeAnnotation "ClsInstD" "InstDecl") . nodeAnnotations) $ getSourcedNodeInfo sourcedNodeInfo
+  guard $ any (Set.member ("ClsInstD", "InstDecl") . Set.map unNodeAnnotation . nodeAnnotations) $ getSourcedNodeInfo sourcedNodeInfo
 
   traverse_ addImplicitRoot ( uses n )
 
 
 analyseClassDeclaration :: ( Alternative m, MonadState Analysis m ) => HieAST a -> m ()
 analyseClassDeclaration n@Node{ sourcedNodeInfo } = do
-  guard $ any (Set.member (NodeAnnotation "ClassDecl" "TyClDecl") . nodeAnnotations) $ getSourcedNodeInfo sourcedNodeInfo
+  guard $ any (Set.member ("ClassDecl", "TyClDecl") . Set.map unNodeAnnotation . nodeAnnotations) $ getSourcedNodeInfo sourcedNodeInfo
 
   for_ ( findIdentifiers isClassDeclaration n ) $
     for_ ( findIdentifiers ( const True ) n ) . addDependency
@@ -319,7 +320,7 @@ analyseClassDeclaration n@Node{ sourcedNodeInfo } = do
 
 analyseDataDeclaration :: ( Alternative m, MonadState Analysis m ) => HieAST a -> m ()
 analyseDataDeclaration n@Node{ sourcedNodeInfo } = do
-  guard $ any (Set.member (NodeAnnotation "DataDecl" "TyClDecl") . nodeAnnotations) $ getSourcedNodeInfo sourcedNodeInfo
+  guard $ any (Set.member ("DataDecl", "TyClDecl") . Set.map unNodeAnnotation . nodeAnnotations) $ getSourcedNodeInfo sourcedNodeInfo
 
   for_
     ( foldMap
@@ -346,7 +347,7 @@ analyseDataDeclaration n@Node{ sourcedNodeInfo } = do
 
 constructors :: HieAST a -> Seq ( HieAST a )
 constructors n@Node{ nodeChildren, sourcedNodeInfo } =
-  if any (any ( ("ConDecl" ==) . nodeAnnotType ) . nodeAnnotations) (getSourcedNodeInfo sourcedNodeInfo) then
+  if any (any ( ("ConDecl" ==) . unpackFS . nodeAnnotType) . nodeAnnotations) (getSourcedNodeInfo sourcedNodeInfo) then
     pure n
 
   else
@@ -354,7 +355,7 @@ constructors n@Node{ nodeChildren, sourcedNodeInfo } =
 
 analysePatternSynonyms :: ( Alternative m, MonadState Analysis m ) => HieAST a -> m ()
 analysePatternSynonyms n@Node{ sourcedNodeInfo } = do
-  guard $ any (Set.member (NodeAnnotation "PatSynBind" "HsBindLR") . nodeAnnotations) $ getSourcedNodeInfo sourcedNodeInfo
+  guard $ any (Set.member ("PatSynBind", "HsBindLR") . Set.map unNodeAnnotation . nodeAnnotations) $ getSourcedNodeInfo sourcedNodeInfo
 
   for_ ( findDeclarations n ) $ for_ ( uses n ) . addDependency
 
@@ -407,3 +408,7 @@ nameToDeclaration :: Name -> Maybe Declaration
 nameToDeclaration name = do
   m <- nameModule_maybe name
   return Declaration { declModule = m, declOccName = nameOccName name }
+
+
+unNodeAnnotation :: NodeAnnotation -> (String, String)
+unNodeAnnotation (NodeAnnotation x y) = (unpackFS x, unpackFS y)
