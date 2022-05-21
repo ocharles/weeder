@@ -1,5 +1,29 @@
 ## Changelog for Weeder
 
+### [`2.3.1`][v2.3.1] - *2022-05-21*
+
+This is the last release of `weeder` compatible with GHC 9.0.
+
+- Weeder now analyzes top-level pattern bindings. For example, with the following input:
+
+    ```haskell
+    module Dep (a, b) where
+
+    xxx :: Int
+    xxx = 3
+
+    a, b :: Int
+    (a, b) = (xxx, 1)
+    ```
+    
+    ... `weeder` will determine that both `a` and `b` depend on `xxx`. While this is an over-approximation, it prevents weeder from reporting false positives. For more information, see [#92](https://github.com/ocharles/weeder/issues/92).
+
+- Corrected a typo in `--help` ([#96](https://github.com/ocharles/weeder/pull/96)).
+- Shorten the help text for `--require-hs-files` ([#97](https://github.com/ocharles/weeder/pull/97)).
+- Allow `algebraic-graphs-0.6` ([#95](https://github.com/ocharles/weeder/pull/95)).
+- Allow Dhall 1.41 ([#99](https://github.com/ocharles/weeder/pull/99)).
+- Allow `optparse-applicative-0.17` ([#100](https://github.com/ocharles/weeder/pull/100)).
+
 ### [`2.3.0`][v2.3.0] - *2021-10-11*
 
 - Switch to GHC 9
@@ -201,6 +225,7 @@ maintained by Ollie Charles (@ocharles on GitHub).
 - Initial version
 
 
+[v2.3.1]: https://github.com/ocharles/weeder/releases/tag/2.3.1
 [v2.3.0 ]: https://github.com/ocharles/weeder/releases/tag/2.3.0
 [v2.2.0 ]: https://github.com/ocharles/weeder/releases/tag/2.2.0
 [v2.1.3 ]: https://github.com/ocharles/weeder/releases/tag/2.1.3
