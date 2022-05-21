@@ -48,8 +48,12 @@ import qualified Data.Set as Set
 import Data.Generics.Labels ()
 
 -- ghc
-import GHC.Types.Avail ( AvailInfo( Avail, AvailTC ) )
-import GHC.Types.FieldLabel ( FieldLbl( FieldLabel, flSelector ) )
+import GHC.Data.FastString ( unpackFS )
+import GHC.Types.Avail
+  ( AvailInfo( Avail, AvailTC )
+  , GreName( NormalGreName, FieldGreName )
+  )
+import GHC.Types.FieldLabel ( FieldLabel( FieldLabel, flSelector ) )
 import GHC.Iface.Ext.Types
   ( BindType( RegularBind )
   , ContextInfo( Decl, ValBind, PatternBind, Use, TyDecl, ClassTyDecl )
@@ -58,6 +62,7 @@ import GHC.Iface.Ext.Types
   , HieASTs( HieASTs )
   , HieFile( HieFile, hie_asts, hie_exports, hie_module, hie_hs_file )
   , IdentifierDetails( IdentifierDetails, identInfo )
+  , NodeAnnotation( NodeAnnotation, nodeAnnotType )
   , NodeInfo( nodeIdentifiers, nodeAnnotations )
   , Scope( ModuleScope )
   , getSourcedNodeInfo
@@ -188,13 +193,21 @@ analyseHieFile HieFile{ hie_asts = HieASTs hieASTs, hie_exports, hie_module, hie
 
 analyseExport :: MonadState Analysis m => Module -> AvailInfo -> m ()
 analyseExport m = \case
-  Avail name ->
+  Avail (NormalGreName name) ->
+    traverse_ addExport $ nameToDeclaration name
+
+  Avail (FieldGreName (FieldLabel{ flSelector })) ->
+    traverse_ addExport $ nameToDeclaration flSelector
+
+  AvailTC name pieces -> do
     for_ ( nameToDeclaration name ) addExport
 
-  AvailTC name pieces fields -> do
-    for_ ( nameToDeclaration name ) addExport
-    for_ pieces ( traverse_ addExport . nameToDeclaration )
-    for_ fields \FieldLabel{ flSelector } -> for_ ( nameToDeclaration flSelector ) addExport
+    for_ pieces \case
+      NormalGreName name ->
+        traverse_ addExport $ nameToDeclaration name
+
+      FieldGreName (FieldLabel{ flSelector }) ->
+        traverse_ addExport $ nameToDeclaration flSelector
 
   where
 
@@ -265,7 +278,7 @@ topLevelAnalysis n@Node{ nodeChildren } = do
 analyseBinding :: ( Alternative m, MonadState Analysis m ) => HieAST a -> m ()
 analyseBinding n@Node{ nodeSpan, sourcedNodeInfo } = do
   let bindAnns = Set.fromList [("FunBind", "HsBindLR"), ("PatBind", "HsBindLR")]
-  guard $ any (not . Set.disjoint bindAnns . nodeAnnotations) $ getSourcedNodeInfo sourcedNodeInfo
+  guard $ any (not . Set.disjoint bindAnns . Set.map unNodeAnnotation . nodeAnnotations) $ getSourcedNodeInfo sourcedNodeInfo
 
   for_ ( findDeclarations n ) \d -> do
     define d nodeSpan
@@ -275,21 +288,21 @@ analyseBinding n@Node{ nodeSpan, sourcedNodeInfo } = do
 
 analyseRewriteRule :: ( Alternative m, MonadState Analysis m ) => HieAST a -> m ()
 analyseRewriteRule n@Node{ sourcedNodeInfo } = do
-  guard $ any (Set.member ("HsRule", "RuleDecl") . nodeAnnotations) $ getSourcedNodeInfo sourcedNodeInfo
+  guard $ any (Set.member ("HsRule", "RuleDecl") . Set.map unNodeAnnotation . nodeAnnotations) $ getSourcedNodeInfo sourcedNodeInfo
 
   for_ ( uses n ) addImplicitRoot
 
 
 analyseInstanceDeclaration :: ( Alternative m, MonadState Analysis m ) => HieAST a -> m ()
 analyseInstanceDeclaration n@Node{ sourcedNodeInfo } = do
-  guard $ any (Set.member ("ClsInstD", "InstDecl") . nodeAnnotations) $ getSourcedNodeInfo sourcedNodeInfo
+  guard $ any (Set.member ("ClsInstD", "InstDecl") . Set.map unNodeAnnotation . nodeAnnotations) $ getSourcedNodeInfo sourcedNodeInfo
 
   traverse_ addImplicitRoot ( uses n )
 
 
 analyseClassDeclaration :: ( Alternative m, MonadState Analysis m ) => HieAST a -> m ()
 analyseClassDeclaration n@Node{ sourcedNodeInfo } = do
-  guard $ any (Set.member ("ClassDecl", "TyClDecl") . nodeAnnotations) $ getSourcedNodeInfo sourcedNodeInfo
+  guard $ any (Set.member ("ClassDecl", "TyClDecl") . Set.map unNodeAnnotation . nodeAnnotations) $ getSourcedNodeInfo sourcedNodeInfo
 
   for_ ( findIdentifiers isClassDeclaration n ) $
     for_ ( findIdentifiers ( const True ) n ) . addDependency
@@ -307,7 +320,7 @@ analyseClassDeclaration n@Node{ sourcedNodeInfo } = do
 
 analyseDataDeclaration :: ( Alternative m, MonadState Analysis m ) => HieAST a -> m ()
 analyseDataDeclaration n@Node{ sourcedNodeInfo } = do
-  guard $ any (Set.member ("DataDecl", "TyClDecl") . nodeAnnotations) $ getSourcedNodeInfo sourcedNodeInfo
+  guard $ any (Set.member ("DataDecl", "TyClDecl") . Set.map unNodeAnnotation . nodeAnnotations) $ getSourcedNodeInfo sourcedNodeInfo
 
   for_
     ( foldMap
@@ -334,7 +347,7 @@ analyseDataDeclaration n@Node{ sourcedNodeInfo } = do
 
 constructors :: HieAST a -> Seq ( HieAST a )
 constructors n@Node{ nodeChildren, sourcedNodeInfo } =
-  if any (any (\( _, t) -> t == "ConDecl" ) . nodeAnnotations) (getSourcedNodeInfo sourcedNodeInfo) then
+  if any (any ( ("ConDecl" ==) . unpackFS . nodeAnnotType) . nodeAnnotations) (getSourcedNodeInfo sourcedNodeInfo) then
     pure n
 
   else
@@ -342,7 +355,7 @@ constructors n@Node{ nodeChildren, sourcedNodeInfo } =
 
 analysePatternSynonyms :: ( Alternative m, MonadState Analysis m ) => HieAST a -> m ()
 analysePatternSynonyms n@Node{ sourcedNodeInfo } = do
-  guard $ any (Set.member ("PatSynBind", "HsBindLR") . nodeAnnotations) $ getSourcedNodeInfo sourcedNodeInfo
+  guard $ any (Set.member ("PatSynBind", "HsBindLR") . Set.map unNodeAnnotation . nodeAnnotations) $ getSourcedNodeInfo sourcedNodeInfo
 
   for_ ( findDeclarations n ) $ for_ ( uses n ) . addDependency
 
@@ -395,3 +408,7 @@ nameToDeclaration :: Name -> Maybe Declaration
 nameToDeclaration name = do
   m <- nameModule_maybe name
   return Declaration { declModule = m, declOccName = nameOccName name }
+
+
+unNodeAnnotation :: NodeAnnotation -> (String, String)
+unNodeAnnotation (NodeAnnotation x y) = (unpackFS x, unpackFS y)

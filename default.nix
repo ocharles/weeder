@@ -1,4 +1,4 @@
-{ compiler-nix-name ? "ghc901" }:
+{ compiler-nix-name ? "ghc922" }:
 let
   haskellNix = import (import ./nix/sources.nix)."haskell.nix" {};
 
@@ -17,7 +17,7 @@ pkgs.haskell-nix.project {
     src = ./.;
   };
 
-  modules = [(pkgs.lib.optionalAttrs (compiler-nix-name == "ghc901") {
+  modules = [{
     nonReinstallablePkgs = [
       "rts" "ghc-heap" "ghc-prim" "integer-gmp" "integer-simple" "base"
       "deepseq" "array" "ghc-boot-th" "pretty" "template-haskell"
@@ -32,5 +32,5 @@ pkgs.haskell-nix.project {
       "mtl" "parsec" "process" "text" "time" "transformers"
       "unix" "xhtml" "terminfo"
     ];
-  })];
+  }];
 }

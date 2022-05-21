@@ -9,11 +9,16 @@
 
 module Weeder.Main ( main, mainWithConfig ) where
 
+-- algebraic-graphs
+import Algebra.Graph.Export.Dot ( export, defaultStyleViaShow )
+
 -- base
+import Control.Exception ( evaluate )
 import Control.Monad ( guard, unless, when )
 import Control.Monad.IO.Class ( liftIO )
 import Data.Bool
 import Data.Foldable
+import Data.IORef ( atomicModifyIORef, newIORef, readIORef )
 import Data.List ( isSuffixOf )
 import Data.Version ( showVersion )
 import System.Exit ( exitFailure )
@@ -119,14 +124,13 @@ mainWithConfig hieExt hieDirectories requireHsFiles Config{ rootPatterns, typeCl
       then getFilesIn ".hs" "./."
       else pure []
 
-  nameCache <- do
-    uniqSupply <- mkSplitUniqSupply 'z'
-    return ( initNameCache uniqSupply [] )
+  nameCacheUpdater <-
+    mkNameCacheUpdater
 
   analysis <-
     flip execStateT emptyAnalysis do
       for_ hieFilePaths \hieFilePath -> do
-        hieFileResult <- liftIO ( readCompatibleHieFileOrExit nameCache hieFilePath )
+        hieFileResult <- liftIO ( readCompatibleHieFileOrExit nameCacheUpdater hieFilePath )
         let hsFileExists = any ( hie_hs_file hieFileResult `isSuffixOf` ) hsFilePaths
         when (requireHsFiles ==> hsFileExists) do
           analyseHieFile hieFileResult
@@ -216,9 +220,9 @@ getFilesIn ext path = do
 
 
 -- | Read a .hie file, exiting if it's an incompatible version.
-readCompatibleHieFileOrExit :: NameCache -> FilePath -> IO HieFile
-readCompatibleHieFileOrExit nameCache path = do
-  res <- readHieFileWithVersion (\(v, _) -> v == hieVersion) (NCU (\f -> return $ snd $ f nameCache)) path
+readCompatibleHieFileOrExit :: NameCacheUpdater -> FilePath -> IO HieFile
+readCompatibleHieFileOrExit nameCacheUpdater path = do
+  res <- readHieFileWithVersion (\(v, _) -> v == hieVersion) nameCacheUpdater path
   case res of
     Right HieFileResult{ hie_file_result } ->
       return hie_file_result
@@ -232,6 +236,19 @@ readCompatibleHieFileOrExit nameCache path = do
                <> " as the project it is used on"
       exitFailure
 
+
+mkNameCacheUpdater :: IO NameCacheUpdater
+mkNameCacheUpdater = do
+  nameCache <- do
+    uniqSupply <- mkSplitUniqSupply 'z'
+    return ( initNameCache uniqSupply [] )
+
+  nameCacheRef <- newIORef nameCache
+
+  let update_nc f = do r <- atomicModifyIORef nameCacheRef f
+                       _ <- evaluate =<< readIORef nameCacheRef
+                       return r
+  return (NCU update_nc)
 
 
 infixr 5 ==>
