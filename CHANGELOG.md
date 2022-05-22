@@ -1,5 +1,10 @@
 ## Changelog for Weeder
 
+### [`2.4.0`][v2.4.0] - *2022-05-22*
+
+- Weeder has been upgraded to support GHC 9.2 (only). As this changes the
+  format of `.hie` files accepted, this is a major version bump.
+
 ### [`2.3.1`][v2.3.1] - *2022-05-21*
 
 This is the last release of `weeder` compatible with GHC 9.0.
@@ -15,7 +20,7 @@ This is the last release of `weeder` compatible with GHC 9.0.
     a, b :: Int
     (a, b) = (xxx, 1)
     ```
-    
+
     ... `weeder` will determine that both `a` and `b` depend on `xxx`. While this is an over-approximation, it prevents weeder from reporting false positives. For more information, see [#92](https://github.com/ocharles/weeder/issues/92).
 
 - Corrected a typo in `--help` ([#96](https://github.com/ocharles/weeder/pull/96)).
