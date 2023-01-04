@@ -1,4 +1,4 @@
-{ compiler-nix-name ? "ghc922" }:
+{ compiler-nix-name ? "ghc925" }:
 let
   haskellNix = import (import ./nix/sources.nix)."haskell.nix" {};
 
