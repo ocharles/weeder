@@ -1,5 +1,9 @@
 ## Changelog for Weeder
 
+### [`2.4.1`][v2.4.1] - *2023-01-05*
+
+- Build with `lens-5.2`
+
 ### [`2.4.0`][v2.4.0] - *2022-05-22*
 
 - Weeder has been upgraded to support GHC 9.2 (only). As this changes the
@@ -230,6 +234,8 @@ maintained by Ollie Charles (@ocharles on GitHub).
 - Initial version
 
 
+[v2.4.1]: https://github.com/ocharles/weeder/releases/tag/2.4.1
+[v2.4.0]: https://github.com/ocharles/weeder/releases/tag/2.4.0
 [v2.3.1]: https://github.com/ocharles/weeder/releases/tag/2.3.1
 [v2.3.0 ]: https://github.com/ocharles/weeder/releases/tag/2.3.0
 [v2.2.0 ]: https://github.com/ocharles/weeder/releases/tag/2.2.0
