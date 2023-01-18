@@ -1,7 +1,6 @@
 {-# language ApplicativeDo #-}
 {-# language BlockArguments #-}
 {-# language FlexibleContexts #-}
-{-# language LambdaCase #-}
 {-# language NamedFieldPuns #-}
 {-# language OverloadedStrings #-}
 
@@ -9,16 +8,11 @@
 
 module Weeder.Main ( main, mainWithConfig ) where
 
--- algebraic-graphs
-import Algebra.Graph.Export.Dot ( export, defaultStyleViaShow )
-
 -- base
-import Control.Exception ( evaluate )
 import Control.Monad ( guard, unless, when )
 import Control.Monad.IO.Class ( liftIO )
 import Data.Bool
 import Data.Foldable
-import Data.IORef ( atomicModifyIORef, newIORef, readIORef )
 import Data.List ( isSuffixOf )
 import Data.Version ( showVersion )
 import System.Exit ( exitFailure )
@@ -40,13 +34,12 @@ import System.Directory ( canonicalizePath, doesDirectoryExist, doesFileExist, d
 import System.FilePath ( isExtensionOf )
 
 -- ghc
-import GHC.Iface.Ext.Binary ( HieFileResult( HieFileResult, hie_file_result ), NameCacheUpdater( NCU ), readHieFileWithVersion )
+import GHC.Iface.Ext.Binary ( HieFileResult( HieFileResult, hie_file_result ), readHieFileWithVersion )
 import GHC.Iface.Ext.Types ( HieFile( hie_hs_file ), hieVersion )
 import GHC.Unit.Module ( moduleName, moduleNameString )
 import GHC.Types.Name.Cache ( initNameCache, NameCache )
 import GHC.Types.Name ( occNameString )
 import GHC.Types.SrcLoc ( RealSrcLoc, realSrcSpanStart, srcLocLine )
-import GHC.Types.Unique.Supply ( mkSplitUniqSupply )
 
 -- regex-tdfa
 import Text.Regex.TDFA ( (=~) )
@@ -124,13 +117,13 @@ mainWithConfig hieExt hieDirectories requireHsFiles Config{ rootPatterns, typeCl
       then getFilesIn ".hs" "./."
       else pure []
 
-  nameCacheUpdater <-
-    mkNameCacheUpdater
+  nameCache <-
+    initNameCache 'z' []
 
   analysis <-
     flip execStateT emptyAnalysis do
       for_ hieFilePaths \hieFilePath -> do
-        hieFileResult <- liftIO ( readCompatibleHieFileOrExit nameCacheUpdater hieFilePath )
+        hieFileResult <- liftIO ( readCompatibleHieFileOrExit nameCache hieFilePath )
         let hsFileExists = any ( hie_hs_file hieFileResult `isSuffixOf` ) hsFilePaths
         when (requireHsFiles ==> hsFileExists) do
           analyseHieFile hieFileResult
@@ -220,9 +213,9 @@ getFilesIn ext path = do
 
 
 -- | Read a .hie file, exiting if it's an incompatible version.
-readCompatibleHieFileOrExit :: NameCacheUpdater -> FilePath -> IO HieFile
-readCompatibleHieFileOrExit nameCacheUpdater path = do
-  res <- readHieFileWithVersion (\(v, _) -> v == hieVersion) nameCacheUpdater path
+readCompatibleHieFileOrExit :: NameCache -> FilePath -> IO HieFile
+readCompatibleHieFileOrExit nameCache path = do
+  res <- readHieFileWithVersion (\(v, _) -> v == hieVersion) nameCache path
   case res of
     Right HieFileResult{ hie_file_result } ->
       return hie_file_result
@@ -237,20 +230,6 @@ readCompatibleHieFileOrExit nameCacheUpdater path = do
       exitFailure
 
 
-mkNameCacheUpdater :: IO NameCacheUpdater
-mkNameCacheUpdater = do
-  nameCache <- do
-    uniqSupply <- mkSplitUniqSupply 'z'
-    return ( initNameCache uniqSupply [] )
-
-  nameCacheRef <- newIORef nameCache
-
-  let update_nc f = do r <- atomicModifyIORef nameCacheRef f
-                       _ <- evaluate =<< readIORef nameCacheRef
-                       return r
-  return (NCU update_nc)
-
-
 infixr 5 ==>
 
 
@@ -258,4 +237,3 @@ infixr 5 ==>
 (==>) :: Bool -> Bool -> Bool
 True  ==> x = x
 False ==> _ = True
-
