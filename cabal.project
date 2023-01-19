@@ -7,3 +7,4 @@ source-repository-package
   location: https://github.com/scarf-sh/cborg
   tag: 8dae0d21e6f17e30785f35bb3ef5eb611863a904
   subdir: cborg
+  --sha256: sha256-SAHFIlN5QKQKJFhHliXvXOQhrqvsE/TLvY2rkftXkHM=
