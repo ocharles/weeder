@@ -1,5 +1,10 @@
 ## Changelog for Weeder
 
+### [`2.5.0`][v2.5.0] - *2023-01-23*
+ 
+- Weeder has been upgraded to support GHC 9.4 (only). As this changes the
+  format of `.hie` files accepted, this is a major version bump. Thanks to @tfausak!
+
 ### [`2.4.1`][v2.4.1] - *2023-01-05*
 
 - Build with `lens-5.2`
