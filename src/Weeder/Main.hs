@@ -6,7 +6,7 @@
 
 -- | This module provides an entry point to the Weeder executable.
 
-module Weeder.Main ( main, mainWithConfig ) where
+module Weeder.Main ( main, mainWithConfig, mainWithConfig' ) where
 
 -- base
 import Control.Monad ( guard, unless, when )
@@ -103,7 +103,15 @@ main = do
 -- This will recursively find all files with the given extension in the given directories, perform
 -- analysis, and report all unused definitions according to the 'Config'.
 mainWithConfig :: String -> [FilePath] -> Bool -> Config -> IO ()
-mainWithConfig hieExt hieDirectories requireHsFiles Config{ rootPatterns, typeClassRoots } = do
+mainWithConfig hieExt hieDirectories requireHsFiles weederConfig = 
+  mainWithConfig' hieExt hieDirectories requireHsFiles weederConfig 
+    >>= \(success, _) -> unless success exitFailure
+
+
+-- | Alternative mainWithConfig that returns the analysis and whether a zero exit
+-- code should be returned.
+mainWithConfig' :: String -> [FilePath] -> Bool -> Config -> IO (Bool, Analysis)
+mainWithConfig' hieExt hieDirectories requireHsFiles Config{ rootPatterns, typeClassRoots } = do
   hieFilePaths <-
     concat <$>
       traverse ( getFilesIn hieExt )
@@ -163,7 +171,7 @@ mainWithConfig hieExt hieDirectories requireHsFiles Config{ rootPatterns, typeCl
     for_ declarations \( start, d ) ->
       putStrLn $ showWeed path start d
 
-  unless ( null warnings ) exitFailure
+  pure (null warnings, analysis)
 
 showWeed :: FilePath -> RealSrcLoc -> Declaration -> String
 showWeed path start d =
