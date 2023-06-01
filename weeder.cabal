@@ -75,6 +75,7 @@ test-suite weeder-test
     , filepath
     , ghc
     , hspec
+    , process
     , silently
     , text
     , weeder

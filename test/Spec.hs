@@ -8,6 +8,7 @@ import Algebra.Graph.Export.Dot
 import GHC.Types.Name.Occurrence (occNameString)
 import System.Directory
 import System.FilePath
+import System.Process
 import System.IO.Silently (hCapture_)
 import System.IO (stdout, stderr, hPrint)
 import Test.Hspec
@@ -19,10 +20,13 @@ main :: IO ()
 main = do
   stdoutFiles <- discoverIntegrationTests
   let hieDirectories = map dropExtension stdoutFiles
-  hspec $
+  hspec $ afterAll_ (mapM_ (drawDot . (<.> ".dot")) hieDirectories) $ do
     describe "Weeder.Main" $
-      describe "mainWithConfig" $
+      describe "mainWithConfig'" $
         zipWithM_ integrationTestSpec stdoutFiles hieDirectories
+  where
+    -- Draw a dotfile via graphviz
+    drawDot f = callCommand $ "dot -Tpng " ++ f ++ " -o " ++ (f -<.> ".png")
 
 -- | Run weeder on hieDirectory, comparing the output to stdoutFile
 -- The directory containing hieDirectory must also have a .dhall file
@@ -51,7 +55,7 @@ integrationTestOutput hieDirectory = hCapture_ [stdout] $ do
       >>= Weeder.Main.mainWithConfig' ".hie" [hieDirectory] True
   let graph = Weeder.dependencyGraph analysis
       graph' = export (defaultStyle (occNameString . Weeder.declOccName)) graph
-  handle (\e -> hPrint stderr (e :: IOException)) $ 
+  handle (\e -> hPrint stderr (e :: IOException)) $
     writeFile (hieDirectory <.> ".dot") graph'
   where
     dhallFile = hieDirectory <.> ".dhall"
