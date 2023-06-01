@@ -68,10 +68,12 @@ executable weeder
 test-suite weeder-test
   build-depends:
     , aeson
+    , algebraic-graphs
     , base
     , dhall
     , directory
     , filepath
+    , ghc
     , hspec
     , silently
     , text
