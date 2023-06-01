@@ -7,6 +7,7 @@ import qualified Data.Text as T
 import Algebra.Graph.Export.Dot
 import GHC.Types.Name.Occurrence (occNameString)
 import System.Directory
+import System.Environment (getArgs, withArgs)
 import System.FilePath
 import System.Process
 import System.IO.Silently (hCapture_)
@@ -18,12 +19,16 @@ import Control.Exception.Base (handle)
 
 main :: IO ()
 main = do
+  args <- getArgs
   stdoutFiles <- discoverIntegrationTests
   let hieDirectories = map dropExtension stdoutFiles
-  hspec $ afterAll_ (mapM_ (drawDot . (<.> ".dot")) hieDirectories) $ do
-    describe "Weeder.Main" $
-      describe "mainWithConfig'" $
-        zipWithM_ integrationTestSpec stdoutFiles hieDirectories
+      drawDots = mapM_ (drawDot . (<.> ".dot")) hieDirectories
+      graphviz = "--graphviz" `elem` args
+  withArgs (filter (/="--graphviz") args) $ 
+    hspec $ afterAll_ (when graphviz drawDots) $ do
+      describe "Weeder.Main" $
+        describe "mainWithConfig'" $
+          zipWithM_ integrationTestSpec stdoutFiles hieDirectories
   where
     -- Draw a dotfile via graphviz
     drawDot f = callCommand $ "dot -Tpng " ++ f ++ " -o " ++ (f -<.> ".png")
