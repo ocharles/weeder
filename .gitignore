@@ -1,5 +1,7 @@
 *.hi
 *.hie
 *.o
+*.dot
+*.ps
 dist-newstyle
 cabal.project.local
