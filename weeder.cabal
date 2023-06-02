@@ -89,6 +89,8 @@ test-suite weeder-test
     -- Tests
     Spec.BasicExample.BasicExample
     Spec.DeriveGeneric.DeriveGeneric
+    Spec.InstanceTypeclass.InstanceTypeclass
     Spec.NumInstance.NumInstance
+    Spec.StandaloneDeriving.StandaloneDeriving
   ghc-options: -Wall -fwarn-incomplete-uni-patterns -fwrite-ide-info -hiedir ./test
   default-language: Haskell2010

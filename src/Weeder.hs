@@ -7,6 +7,7 @@
 {-# language NoImplicitPrelude #-}
 {-# language OverloadedLabels #-}
 {-# language OverloadedStrings #-}
+{-# language TupleSections #-}
 
 module Weeder
   ( -- * Analysis
@@ -56,8 +57,9 @@ import GHC.Types.Avail
 import GHC.Types.FieldLabel ( FieldLabel( FieldLabel, flSelector ) )
 import GHC.Iface.Ext.Types
   ( BindType( RegularBind )
-  , ContextInfo( Decl, ValBind, PatternBind, Use, TyDecl, ClassTyDecl )
+  , ContextInfo( Decl, ValBind, PatternBind, Use, TyDecl, ClassTyDecl, EvidenceVarBind )
   , DeclType( DataDec, ClassDec, ConDec )
+  , EvVarSource (EvInstBind)
   , HieAST( Node, nodeChildren, nodeSpan, sourcedNodeInfo )
   , HieASTs( HieASTs )
   , HieFile( HieFile, hie_asts, hie_exports, hie_module, hie_hs_file )
@@ -251,9 +253,8 @@ topLevelAnalysis n@Node{ nodeChildren } = do
     runMaybeT
       ( msum
           [
-          --   analyseStandaloneDeriving n
-          -- ,
-            analyseInstanceDeclaration n
+            analyseStandaloneDeriving n
+          , analyseInstanceDeclaration n
           , analyseBinding n
           , analyseRewriteRule n
           , analyseClassDeclaration n
@@ -292,18 +293,27 @@ analyseRewriteRule n@Node{ sourcedNodeInfo } = do
 
 
 analyseInstanceDeclaration :: ( Alternative m, MonadState Analysis m ) => HieAST a -> m ()
-analyseInstanceDeclaration n@Node{ sourcedNodeInfo } = do
+analyseInstanceDeclaration n@Node{ nodeSpan , sourcedNodeInfo } = do
   guard $ any (Set.member ("ClsInstD", "InstDecl") . Set.map unNodeAnnotation . nodeAnnotations) $ getSourcedNodeInfo sourcedNodeInfo
 
-  traverse_ addImplicitRoot ( uses n )
+  for_ ( findEvInstBinds n ) \d -> do
+    -- This makes instance declarations show up in 
+    -- the output if type-class-roots is set to False.
+    define d nodeSpan 
+
+    for_ ( uses n ) $ addDependency d
+
+    addImplicitRoot d
 
 
 analyseClassDeclaration :: ( Alternative m, MonadState Analysis m ) => HieAST a -> m ()
-analyseClassDeclaration n@Node{ sourcedNodeInfo } = do
+analyseClassDeclaration n@Node{ nodeSpan, sourcedNodeInfo } = do
   guard $ any (Set.member ("ClassDecl", "TyClDecl") . Set.map unNodeAnnotation . nodeAnnotations) $ getSourcedNodeInfo sourcedNodeInfo
 
-  for_ ( findIdentifiers isClassDeclaration n ) $
-    for_ ( findIdentifiers ( const True ) n ) . addDependency
+  for_ ( findIdentifiers isClassDeclaration n ) $ \d -> do
+    define d nodeSpan
+
+    (for_ ( findIdentifiers ( const True ) n ) . addDependency) d
 
   where
 
@@ -332,6 +342,13 @@ analyseDataDeclaration n@Node{ sourcedNodeInfo } = do
 
           for_ ( uses constructor ) ( addDependency conDec )
 
+  for_ ( derivedInstances n ) \(d, ast) -> do
+    define d (nodeSpan ast)
+
+    for_ ( uses ast ) $ addDependency d
+
+    addImplicitRoot d
+
   where
 
     isDataDec = \case
@@ -351,11 +368,49 @@ constructors n@Node{ nodeChildren, sourcedNodeInfo } =
   else
     foldMap constructors nodeChildren
 
+
+derivedInstances :: HieAST a -> Seq (Declaration, HieAST a)
+derivedInstances n@Node{ nodeChildren, sourcedNodeInfo } =
+  if any (Set.member ("HsDerivingClause", "HsDerivingClause") . Set.map unNodeAnnotation . nodeAnnotations) $ getSourcedNodeInfo sourcedNodeInfo
+    then findEvInstBinds' n
+
+  else 
+    foldMap derivedInstances nodeChildren
+
+
+analyseStandaloneDeriving :: (Alternative m, MonadState Analysis m) => HieAST a -> m ()
+analyseStandaloneDeriving n@Node{ nodeSpan, sourcedNodeInfo } = do
+  guard $ any (Set.member ("DerivDecl", "DerivDecl") . Set.map unNodeAnnotation . nodeAnnotations) $ getSourcedNodeInfo sourcedNodeInfo
+
+  for_ (findEvInstBinds n) \d -> do
+    define d nodeSpan
+
+    for_ (uses n) $ addDependency d
+
+    addImplicitRoot d
+
+
 analysePatternSynonyms :: ( Alternative m, MonadState Analysis m ) => HieAST a -> m ()
 analysePatternSynonyms n@Node{ sourcedNodeInfo } = do
   guard $ any (Set.member ("PatSynBind", "HsBindLR") . Set.map unNodeAnnotation . nodeAnnotations) $ getSourcedNodeInfo sourcedNodeInfo
 
   for_ ( findDeclarations n ) $ for_ ( uses n ) . addDependency
+
+
+findEvInstBinds :: HieAST a -> Seq Declaration
+findEvInstBinds = fmap fst . findEvInstBinds'
+
+
+findEvInstBinds' :: HieAST a -> Seq (Declaration, HieAST a)
+findEvInstBinds' = 
+  findIdentifiers' 
+    (   not 
+      . Set.null 
+      . Set.filter \case
+          EvidenceVarBind EvInstBind{} ModuleScope _ -> True
+          _ -> False
+    )
+
 
 findDeclarations :: HieAST a -> Seq Declaration
 findDeclarations =
@@ -379,9 +434,19 @@ findIdentifiers
   :: ( Set ContextInfo -> Bool )
   -> HieAST a
   -> Seq Declaration
-findIdentifiers f Node{ sourcedNodeInfo, nodeChildren } =
+findIdentifiers f n = fst <$> findIdentifiers' f n
+
+
+-- | This version also returns the AST that the identifier 
+-- was found in, in case of needing extra information like 
+-- the other identifiers next to it.
+findIdentifiers'
+  :: ( Set ContextInfo -> Bool )
+  -> HieAST a
+  -> Seq (Declaration, HieAST a)
+findIdentifiers' f n@Node{ sourcedNodeInfo, nodeChildren } =
      foldMap
-       ( \case
+       (fmap (,n) . \case
            ( Left _, _ ) ->
              mempty
 
@@ -393,7 +458,7 @@ findIdentifiers f Node{ sourcedNodeInfo, nodeChildren } =
                mempty
            )
        (foldMap (Map.toList . nodeIdentifiers) (getSourcedNodeInfo sourcedNodeInfo))
-  <> foldMap ( findIdentifiers f ) nodeChildren
+  <> foldMap ( findIdentifiers' f ) nodeChildren
 
 
 uses :: HieAST a -> Set Declaration
