@@ -9,8 +9,7 @@
 module Weeder.Main ( main, mainWithConfig, mainWithConfig' ) where
 
 -- base
-import Control.Monad ( guard, unless, when )
-import Control.Monad.IO.Class ( liftIO )
+import Control.Monad ( guard, unless )
 import Data.Bool
 import Data.Foldable
 import Data.List ( isSuffixOf )
@@ -128,13 +127,16 @@ mainWithConfig' hieExt hieDirectories requireHsFiles Config{ rootPatterns, typeC
   nameCache <-
     initNameCache 'z' []
 
+  hieFileResults <-
+    mapM ( readCompatibleHieFileOrExit nameCache ) hieFilePaths
+
+  let
+    hieFileResults' = flip filter hieFileResults \hieFileResult ->
+      let hsFileExists = any ( hie_hs_file hieFileResult `isSuffixOf` ) hsFilePaths
+       in requireHsFiles ==> hsFileExists
+
   analysis <-
-    flip execStateT emptyAnalysis do
-      for_ hieFilePaths \hieFilePath -> do
-        hieFileResult <- liftIO ( readCompatibleHieFileOrExit nameCache hieFilePath )
-        let hsFileExists = any ( hie_hs_file hieFileResult `isSuffixOf` ) hsFilePaths
-        when (requireHsFiles ==> hsFileExists) do
-          analyseHieFile hieFileResult
+    execStateT ( analyseHieFiles hieFileResults' ) emptyAnalysis
 
   let
     roots =

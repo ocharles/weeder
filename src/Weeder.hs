@@ -12,7 +12,7 @@
 module Weeder
   ( -- * Analysis
     Analysis(..)
-  , analyseHieFile
+  , analyseHieFiles
   , emptyAnalysis
   , allDeclarations
 
@@ -32,7 +32,9 @@ import Algebra.Graph.ToGraph ( dfs )
 -- base
 import Control.Applicative ( Alternative )
 import Control.Monad ( guard, msum, when )
+import Data.Maybe ( mapMaybe )
 import Data.Foldable ( for_, traverse_ )
+import Data.Functor ( (<&>) )
 import Data.List ( intercalate )
 import Data.Monoid ( First( First ) )
 import GHC.Generics ( Generic )
@@ -44,6 +46,8 @@ import qualified Data.Map.Strict as Map
 import Data.Sequence ( Seq )
 import Data.Set ( Set )
 import qualified Data.Set as Set
+import Data.Tree (Tree)
+import qualified Data.Tree as Tree
 
 -- generic-lens
 import Data.Generics.Labels ()
@@ -61,13 +65,19 @@ import GHC.Iface.Ext.Types
   , DeclType( DataDec, ClassDec, ConDec )
   , EvVarSource (EvInstBind)
   , HieAST( Node, nodeChildren, nodeSpan, sourcedNodeInfo )
-  , HieASTs( HieASTs )
+  , HieASTs( HieASTs, getAsts )
   , HieFile( HieFile, hie_asts, hie_exports, hie_module, hie_hs_file )
   , IdentifierDetails( IdentifierDetails, identInfo )
   , NodeAnnotation( NodeAnnotation, nodeAnnotType )
   , NodeInfo( nodeIdentifiers, nodeAnnotations )
   , Scope( ModuleScope )
   , getSourcedNodeInfo
+  )
+import GHC.Iface.Ext.Utils 
+  ( EvidenceInfo( EvidenceInfo, evidenceVar )
+  , findEvidenceUse
+  , getEvidenceTree
+  , generateReferencesMap 
   )
 import GHC.Unit.Module ( Module, moduleStableString )
 import GHC.Types.Name
@@ -86,7 +96,7 @@ import GHC.Types.SrcLoc ( RealSrcSpan, realSrcSpanEnd, realSrcSpanStart )
 import Control.Lens ( (%=) )
 
 -- mtl
-import Control.Monad.State.Class ( MonadState )
+import Control.Monad.State.Class ( MonadState, get )
 
 -- transformers
 import Control.Monad.Trans.Maybe ( runMaybeT )
@@ -143,6 +153,9 @@ data Analysis =
       -- ^ All exports for a given module.
     , modulePaths :: Map Module FilePath
       -- ^ A map from modules to the file path to the .hs file defining them.
+    , requestedEvidence :: Map Declaration [Name]
+      -- ^ Map from declarations to Names from which evidence is to be 
+      -- followed back to the binding. 
     }
   deriving
     ( Generic )
@@ -150,7 +163,7 @@ data Analysis =
 
 -- | The empty analysis - the result of analysing zero @.hie@ files.
 emptyAnalysis :: Analysis
-emptyAnalysis = Analysis empty mempty mempty mempty mempty
+emptyAnalysis = Analysis empty mempty mempty mempty mempty mempty
 
 
 -- | A root for reachability analysis.
@@ -191,6 +204,38 @@ analyseHieFile HieFile{ hie_asts = HieASTs hieASTs, hie_exports, hie_module, hie
     topLevelAnalysis ast
 
   for_ hie_exports ( analyseExport hie_module )
+
+
+-- | Incrementally update 'Analysis' with information in every 'HieFile'.
+analyseHieFiles :: (Foldable f, MonadState Analysis m) => f HieFile -> m ()
+analyseHieFiles hieFiles = do
+  traverse_ analyseHieFile hieFiles
+
+  let asts = concatMap (Map.elems . getAsts . hie_asts) hieFiles
+
+  analyseEvidence asts
+
+
+-- | Follow evidence usages back to their type class instance bindings and connect
+-- them to declarations as per the @requestEvidence@ field of @Analysis@. Applied 
+-- after @analyseHieFile@ and takes HieASTs from every HieFile used at once.
+analyseEvidence :: (Foldable f, MonadState Analysis m) => f (HieAST a) -> m ()
+analyseEvidence asts = do
+  analysis <- get
+
+  let evidenceInfos = fmap (concatMap Tree.flatten . getEvidenceTrees) (requestedEvidence analysis)
+      instanceEvidenceInfos = evidenceInfos <&> filter \case 
+        EvidenceInfo _ _ _ (Just (EvInstBind _ _, ModuleScope, _)) -> True
+        _ -> False
+
+  for_ ( Map.toList instanceEvidenceInfos ) \(d, evs) -> do
+    for_ evs \ev -> do
+      let name = nameToDeclaration (evidenceVar ev)
+      mapM_ (addDependency d) name
+
+  where
+    
+    getEvidenceTrees = mapMaybe (getEvidenceTree (generateReferencesMap asts))
 
 
 analyseExport :: MonadState Analysis m => Module -> AvailInfo -> m ()
@@ -282,6 +327,8 @@ analyseBinding n@Node{ nodeSpan, sourcedNodeInfo } = do
   for_ ( findDeclarations n ) \d -> do
     define d nodeSpan
 
+    requestEvidence n d
+
     for_ ( uses n ) $ addDependency d
 
 
@@ -301,6 +348,8 @@ analyseInstanceDeclaration n@Node{ nodeSpan , sourcedNodeInfo } = do
     -- the output if type-class-roots is set to False.
     define d nodeSpan 
 
+    requestEvidence n d
+
     for_ ( uses n ) $ addDependency d
 
     addImplicitRoot d
@@ -312,6 +361,8 @@ analyseClassDeclaration n@Node{ nodeSpan, sourcedNodeInfo } = do
 
   for_ ( findIdentifiers isClassDeclaration n ) $ \d -> do
     define d nodeSpan
+
+    requestEvidence n d
 
     (for_ ( findIdentifiers ( const True ) n ) . addDependency) d
 
@@ -344,6 +395,8 @@ analyseDataDeclaration n@Node{ sourcedNodeInfo } = do
 
   for_ ( derivedInstances n ) \(d, ast) -> do
     define d (nodeSpan ast)
+
+    requestEvidence ast d
 
     for_ ( uses ast ) $ addDependency d
 
@@ -384,6 +437,8 @@ analyseStandaloneDeriving n@Node{ nodeSpan, sourcedNodeInfo } = do
 
   for_ (findEvInstBinds n) \d -> do
     define d nodeSpan
+
+    requestEvidence n d
 
     for_ (uses n) $ addDependency d
 
@@ -475,3 +530,17 @@ nameToDeclaration name = do
 
 unNodeAnnotation :: NodeAnnotation -> (String, String)
 unNodeAnnotation (NodeAnnotation x y) = (unpackFS x, unpackFS y)
+
+
+evidenceUseTree :: HieAST a -> Tree [Name]
+evidenceUseTree Node{ sourcedNodeInfo, nodeChildren } = Tree.Node
+  { Tree.rootLabel = foldMap (findEvidenceUse . nodeIdentifiers) (getSourcedNodeInfo sourcedNodeInfo)
+  , Tree.subForest = map evidenceUseTree nodeChildren
+  }
+
+
+-- | Specify that all evidence uses found anywhere under this node should be
+-- followed to the binding and connected to the given declaration.
+requestEvidence :: MonadState Analysis m => HieAST a -> Declaration -> m () 
+requestEvidence n d = 
+  #requestedEvidence %= Map.insertWith (<>) d ( concat $ Tree.flatten (evidenceUseTree n) )
