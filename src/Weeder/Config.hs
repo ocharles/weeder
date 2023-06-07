@@ -3,14 +3,13 @@
 {-# language OverloadedStrings #-}
 {-# language RecordWildCards #-}
 
-module Weeder.Config ( Config(..), config ) where
+module Weeder.Config ( Config(..) ) where
 
 -- containers
 import Data.Set ( Set )
-import qualified Data.Set as Set
 
--- dhall
-import qualified Dhall
+-- aeson
+import qualified Data.Aeson as Aeson
 
 
 -- | Configuration for Weeder analysis.
@@ -24,14 +23,8 @@ data Config = Config
     -- instance is used - enabling this option can prevent false positives.
   }
 
-
--- | A Dhall expression decoder for 'Config'.
---
--- This parses Dhall expressions of the type @{ roots : List Text, type-class-roots : Bool }@.
-config :: Dhall.Decoder Config
-config =
-  Dhall.record do
-    rootPatterns <- Set.fromList <$> Dhall.field "roots" ( Dhall.list Dhall.string )
-    typeClassRoots <- Dhall.field "type-class-roots" Dhall.bool
-
+instance Aeson.FromJSON Config where
+  parseJSON = Aeson.withObject "Config" $ \ object -> do
+    rootPatterns <- object Aeson..: "roots"
+    typeClassRoots <- object Aeson..: "type-class-roots"
     return Config{..}

@@ -24,8 +24,8 @@ import qualified Data.Set as Set
 -- text
 import qualified Data.Text as T
 
--- dhall
-import qualified Dhall
+-- aeson
+import qualified Data.Aeson as Aeson
 
 -- directory
 import System.Directory ( canonicalizePath, doesDirectoryExist, doesFileExist, doesPathExist, listDirectory, withCurrentDirectory )
@@ -63,15 +63,16 @@ main = do
     execParser $
       info (optsP <**> helper <**> versionP) mempty
 
-  Dhall.input config configExpr
+  Aeson.eitherDecodeFileStrict (T.unpack configExpr)
+    >>= either fail pure
     >>= mainWithConfig hieExt hieDirectories requireHsFiles
   where
     optsP = (,,,)
         <$> strOption
             ( long "config"
-                <> help "A Dhall expression for Weeder's configuration. Can either be a file path (a Dhall import) or a literal Dhall expression."
-                <> value "./weeder.dhall"
-                <> metavar "<weeder.dhall>"
+                <> help "A file path for Weeder's configuration."
+                <> value "./weeder.json"
+                <> metavar "<weeder.json>"
                 <> showDefaultWith T.unpack
             )
         <*> strOption
