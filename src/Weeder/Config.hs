@@ -3,14 +3,13 @@
 {-# language OverloadedStrings #-}
 {-# language RecordWildCards #-}
 
-module Weeder.Config ( Config(..), config ) where
+module Weeder.Config ( Config(..), codec ) where
 
 -- containers
 import Data.Set ( Set )
-import qualified Data.Set as Set
 
--- dhall
-import qualified Dhall
+-- toml
+import qualified Toml
 
 
 -- | Configuration for Weeder analysis.
@@ -25,13 +24,9 @@ data Config = Config
   }
 
 
--- | A Dhall expression decoder for 'Config'.
---
--- This parses Dhall expressions of the type @{ roots : List Text, type-class-roots : Bool }@.
-config :: Dhall.Decoder Config
-config =
-  Dhall.record do
-    rootPatterns <- Set.fromList <$> Dhall.field "roots" ( Dhall.list Dhall.string )
-    typeClassRoots <- Dhall.field "type-class-roots" Dhall.bool
-
-    return Config{..}
+-- | A TOML codec for 'Config'.
+codec :: Toml.TomlCodec Config
+codec =
+  Config
+    <$> Toml.arraySetOf Toml._String "roots" Toml..= rootPatterns
+    <*> Toml.bool "type-class-roots" Toml..= typeClassRoots
