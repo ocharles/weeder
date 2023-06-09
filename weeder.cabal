@@ -92,6 +92,7 @@ test-suite weeder-test
     Spec.InstanceTypeclass.InstanceTypeclass
     Spec.NumInstance.NumInstance
     Spec.NumInstanceLiteral.NumInstanceLiteral
+    Spec.OverloadedLists.OverloadedLists
     Spec.OverloadedStrings.OverloadedStrings
     Spec.StandaloneDeriving.StandaloneDeriving
   ghc-options: -Wall -fwarn-incomplete-uni-patterns -fwrite-ide-info -hiedir ./test
