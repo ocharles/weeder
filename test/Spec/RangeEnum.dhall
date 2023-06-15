@@ -1,0 +1,7 @@
+{ roots = [ "Spec.RangeEnum.RangeEnum.planets"
+          , "Spec.RangeEnum.RangeEnum.letters" 
+          , "Spec.RangeEnum.RangeEnum.shapes"
+          , "Spec.RangeEnum.RangeEnum.colours"
+          ]
+, type-class-roots = False 
+}
