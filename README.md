@@ -56,12 +56,7 @@ stack build
 ## Calling Weeder
 
 To call Weeder, you first need to provide a configuration file, `weeder.toml`. Weeder uses
-[TOML](https://toml.io/en/) as its configuration format, and configuration
-files have the type:
-
-``` dhall
-{ roots : List Text, type-class-roots : Bool }
-```
+[TOML](https://toml.io/en/) as its configuration format.
 
 `roots` is a list of regular expressions of symbols that are considered as
 alive. If you're building an executable, the pattern `^Main.main$` is a
