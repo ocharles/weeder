@@ -1,0 +1,17 @@
+{
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "taylorfausak.purple-yolk"
+      ],
+      "settings": {
+        "editor.formatOnSave": true
+      }
+    }
+  },
+  "dockerComposeFile": "compose.yaml",
+  "postCreateCommand": "cabal update",
+  "postStartCommand": "git config --global --add safe.directory \"$PWD\"",
+  "service": "devcontainer",
+  "workspaceFolder": "/workspaces/weeder"
+}
