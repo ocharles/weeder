@@ -9,6 +9,7 @@
 module Weeder.Main ( main, mainWithConfig ) where
 
 -- base
+import Control.Exception ( throwIO )
 import Control.Monad ( guard, unless, when )
 import Control.Monad.IO.Class ( liftIO )
 import Data.Bool
@@ -24,8 +25,8 @@ import qualified Data.Set as Set
 -- text
 import qualified Data.Text as T
 
--- dhall
-import qualified Dhall
+-- toml-reader
+import qualified TOML
 
 -- directory
 import System.Directory ( canonicalizePath, doesDirectoryExist, doesFileExist, doesPathExist, listDirectory, withCurrentDirectory )
@@ -63,15 +64,16 @@ main = do
     execParser $
       info (optsP <**> helper <**> versionP) mempty
 
-  Dhall.input config configExpr
+  TOML.decodeFile (T.unpack configExpr)
+    >>= either throwIO pure
     >>= mainWithConfig hieExt hieDirectories requireHsFiles
   where
     optsP = (,,,)
         <$> strOption
             ( long "config"
-                <> help "A Dhall expression for Weeder's configuration. Can either be a file path (a Dhall import) or a literal Dhall expression."
-                <> value "./weeder.dhall"
-                <> metavar "<weeder.dhall>"
+                <> help "A file path for Weeder's configuration."
+                <> value "./weeder.toml"
+                <> metavar "<weeder.toml>"
                 <> showDefaultWith T.unpack
             )
         <*> strOption
