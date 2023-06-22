@@ -25,7 +25,7 @@ import qualified Data.Set as Set
 -- text
 import qualified Data.Text as T
 
--- toml
+-- toml-reader
 import qualified TOML
 
 -- directory

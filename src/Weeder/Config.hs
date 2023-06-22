@@ -8,7 +8,7 @@ module Weeder.Config ( Config(..) ) where
 -- containers
 import Data.Set ( Set )
 
--- toml
+-- toml-reader
 import qualified TOML
 
 
