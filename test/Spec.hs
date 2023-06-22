@@ -1,8 +1,6 @@
-import qualified Weeder.Config
 import qualified Weeder.Main
 import qualified Weeder
-import qualified Dhall
-import qualified Data.Text as T
+import qualified TOML
 
 import Algebra.Graph.Export.Dot
 import GHC.Types.Name.Occurrence (occNameString)
@@ -14,8 +12,7 @@ import System.IO.Silently (hCapture_)
 import System.IO (stdout, stderr, hPrint)
 import Test.Hspec
 import Control.Monad (zipWithM_, when)
-import Control.Exception (IOException)
-import Control.Exception.Base (handle)
+import Control.Exception ( throwIO, IOException, handle )
 
 main :: IO ()
 main = do
@@ -24,7 +21,7 @@ main = do
   let hieDirectories = map dropExtension stdoutFiles
       drawDots = mapM_ (drawDot . (<.> ".dot")) hieDirectories
       graphviz = "--graphviz" `elem` args
-  withArgs (filter (/="--graphviz") args) $ 
+  withArgs (filter (/="--graphviz") args) $
     hspec $ afterAll_ (when graphviz drawDots) $ do
       describe "Weeder.Main" $
         describe "mainWithConfig'" $
@@ -34,7 +31,7 @@ main = do
     drawDot f = callCommand $ "dot -Tpng " ++ f ++ " -o " ++ (f -<.> ".png")
 
 -- | Run weeder on hieDirectory, comparing the output to stdoutFile
--- The directory containing hieDirectory must also have a .dhall file
+-- The directory containing hieDirectory must also have a .toml file
 -- with the same name as hieDirectory
 integrationTestSpec :: FilePath -> FilePath -> Spec
 integrationTestSpec stdoutFile hieDirectory = do
@@ -56,11 +53,12 @@ integrationTestOutput hieDirectory = hCapture_ [stdout] $ do
   isEmpty <- not . any (".hie" `isExtensionOf`) <$> listDirectory hieDirectory
   when isEmpty $ fail "No .hie files found in directory, this is probably unintended"
   (_, analysis) <-
-    Dhall.input Weeder.Config.config (T.pack dhallFile)
+    TOML.decodeFile configExpr
+      >>= either throwIO pure
       >>= Weeder.Main.mainWithConfig' ".hie" [hieDirectory] True
   let graph = Weeder.dependencyGraph analysis
       graph' = export (defaultStyle (occNameString . Weeder.declOccName)) graph
   handle (\e -> hPrint stderr (e :: IOException)) $
     writeFile (hieDirectory <.> ".dot") graph'
   where
-    dhallFile = hieDirectory <.> ".dhall"
+    configExpr = hieDirectory <.> ".toml"
