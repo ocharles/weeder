@@ -14,7 +14,7 @@ import Control.Monad ( guard, unless, when )
 import Control.Monad.IO.Class ( liftIO )
 import Data.Bool
 import Data.Foldable
-import Data.List ( isSuffixOf )
+import Data.List ( isSuffixOf, sortOn )
 import Data.Version ( showVersion )
 import System.Exit ( exitFailure )
 
@@ -162,7 +162,7 @@ mainWithConfig hieExt hieDirectories requireHsFiles Config{ rootPatterns, typeCl
         dead
 
   for_ ( Map.toList warnings ) \( path, declarations ) ->
-    for_ declarations \( start, d ) ->
+    for_ (sortOn (srcLocLine . fst) declarations) \( start, d ) ->
       putStrLn $ showWeed path start d
 
   unless ( null warnings ) exitFailure
