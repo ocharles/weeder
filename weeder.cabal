@@ -88,12 +88,14 @@ test-suite weeder-test
   other-modules:
     Paths_weeder
     -- Tests
+    Spec.ApplicativeDo.ApplicativeDo
     Spec.BasicExample.BasicExample
     Spec.DeriveGeneric.DeriveGeneric
     Spec.InstanceTypeclass.InstanceTypeclass
     Spec.Monads.Monads
     Spec.NumInstance.NumInstance
     Spec.NumInstanceLiteral.NumInstanceLiteral
+    Spec.OverloadedLabels.OverloadedLabels
     Spec.OverloadedLists.OverloadedLists
     Spec.OverloadedStrings.OverloadedStrings
     Spec.OverloadedStringsNoSig.OverloadedStringsNoSig
