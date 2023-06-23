@@ -24,7 +24,7 @@ main = do
   withArgs (filter (/="--graphviz") args) $
     hspec $ afterAll_ (when graphviz drawDots) $ do
       describe "Weeder.Main" $
-        describe "mainWithConfig'" $
+        describe "mainWithConfig" $
           zipWithM_ integrationTestSpec stdoutFiles hieDirectories
   where
     -- Draw a dotfile via graphviz
@@ -55,7 +55,7 @@ integrationTestOutput hieDirectory = hCapture_ [stdout] $ do
   (_, analysis) <-
     TOML.decodeFile configExpr
       >>= either throwIO pure
-      >>= Weeder.Main.mainWithConfig' ".hie" [hieDirectory] True
+      >>= Weeder.Main.mainWithConfig ".hie" [hieDirectory] True
   let graph = Weeder.dependencyGraph analysis
       graph' = export (defaultStyle (occNameString . Weeder.declOccName)) graph
   handle (\e -> hPrint stderr (e :: IOException)) $
