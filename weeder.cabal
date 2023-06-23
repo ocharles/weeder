@@ -15,23 +15,26 @@ category:      Development
 extra-doc-files:
     README.md
     CHANGELOG.md
+extra-source-files:
+    test/Spec/*.toml
+    test/Spec/*.stdout
 
 library
   build-depends:
-    , algebraic-graphs     ^>= 0.4 || ^>= 0.5  || ^>= 0.6
-    , base                 ^>= 4.17.0.0
+    , algebraic-graphs     ^>= 0.7
+    , base                 ^>= 4.17.0.0 || ^>= 4.18.0.0
     , bytestring           ^>= 0.10.9.0 || ^>= 0.11.0.0
     , containers           ^>= 0.6.2.1
-    , dhall                ^>= 1.30.0 || ^>= 1.31.0 || ^>= 1.32.0 || ^>= 1.33.0 || ^>= 1.34.0 || ^>= 1.35.0 || ^>= 1.36.0 || ^>= 1.37.0 || ^>= 1.40.0 || ^>= 1.41
     , directory            ^>= 1.3.3.2
     , filepath             ^>= 1.4.2.1
     , generic-lens         ^>= 2.2.0.0
-    , ghc                  ^>= 9.4
+    , ghc                  ^>= 9.4 || ^>= 9.6
     , lens                 ^>= 5.1 || ^>= 5.2
-    , mtl                  ^>= 2.2.2
+    , mtl                  ^>= 2.2.2 || ^>= 2.3
     , optparse-applicative ^>= 0.14.3.0 || ^>= 0.15.1.0 || ^>= 0.16.0.0 || ^>=  0.17
     , regex-tdfa           ^>= 1.2.0.0 || ^>= 1.3.1.0
     , text                 ^>= 2.0.1
+    , toml-reader          ^>= 0.2.0.0
     , transformers         ^>= 0.5.6.2 || ^>= 0.6
   hs-source-dirs: src
   exposed-modules:
@@ -60,4 +63,30 @@ executable weeder
   main-is: Main.hs
   hs-source-dirs: exe-weeder
   ghc-options: -Wall -fwarn-incomplete-uni-patterns
+  default-language: Haskell2010
+
+test-suite weeder-test
+  build-depends:
+    , aeson
+    , algebraic-graphs
+    , base
+    , directory
+    , filepath
+    , ghc
+    , hspec
+    , process
+    , silently
+    , text
+    , toml-reader
+    , weeder
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  hs-source-dirs: test
+  autogen-modules:
+    Paths_weeder
+  other-modules:
+    Paths_weeder
+    -- Tests
+    Spec.BasicExample.BasicExample
+  ghc-options: -Wall -fwarn-incomplete-uni-patterns -fwrite-ide-info -hiedir ./test
   default-language: Haskell2010
