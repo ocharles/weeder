@@ -10,13 +10,13 @@ module Weeder.Main ( main, mainWithConfig ) where
 
 -- base
 import Control.Exception ( throwIO )
-import Control.Monad ( guard, unless, when )
+import Control.Monad ( guard, when )
 import Control.Monad.IO.Class ( liftIO )
 import Data.Bool
 import Data.Foldable
 import Data.List ( isSuffixOf, sortOn )
 import Data.Version ( showVersion )
-import System.Exit ( exitFailure )
+import System.Exit ( exitFailure, ExitCode(..), exitWith )
 
 -- containers
 import qualified Data.Map.Strict as Map
@@ -64,9 +64,12 @@ main = do
     execParser $
       info (optsP <**> helper <**> versionP) mempty
 
-  TOML.decodeFile (T.unpack configExpr)
-    >>= either throwIO pure
-    >>= mainWithConfig hieExt hieDirectories requireHsFiles
+  (exitCode, _) <- 
+    TOML.decodeFile (T.unpack configExpr)
+      >>= either throwIO pure
+      >>= mainWithConfig hieExt hieDirectories requireHsFiles
+  
+  exitWith exitCode
   where
     optsP = (,,,)
         <$> strOption
@@ -104,7 +107,7 @@ main = do
 --
 -- This will recursively find all files with the given extension in the given directories, perform
 -- analysis, and report all unused definitions according to the 'Config'.
-mainWithConfig :: String -> [FilePath] -> Bool -> Config -> IO ()
+mainWithConfig :: String -> [FilePath] -> Bool -> Config -> IO (ExitCode, Analysis)
 mainWithConfig hieExt hieDirectories requireHsFiles Config{ rootPatterns, typeClassRoots } = do
   hieFilePaths <-
     concat <$>
@@ -165,7 +168,9 @@ mainWithConfig hieExt hieDirectories requireHsFiles Config{ rootPatterns, typeCl
     for_ (sortOn (srcLocLine . fst) declarations) \( start, d ) ->
       putStrLn $ showWeed path start d
 
-  unless ( null warnings ) exitFailure
+  let exitCode = if null warnings then ExitSuccess else ExitFailure 1
+
+  pure (exitCode, analysis)
 
 showWeed :: FilePath -> RealSrcLoc -> Declaration -> String
 showWeed path start d =
