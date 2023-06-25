@@ -241,10 +241,8 @@ addDeclaration decl =
 -- | Try and add vertices for all declarations in an AST - both
 -- those declared here, and those referred to from here.
 addAllDeclarations :: ( MonadState Analysis m ) => HieAST a -> m ()
-addAllDeclarations n@Node{ nodeChildren } = do
+addAllDeclarations n = do
   for_ ( findIdentifiers ( const True ) n ) addDeclaration
-
-  for_ nodeChildren addAllDeclarations
 
 
 topLevelAnalysis :: MonadState Analysis m => HieAST a -> m ()
