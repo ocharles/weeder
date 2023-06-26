@@ -6,15 +6,16 @@
 
 -- | This module provides an entry point to the Weeder executable.
 
-module Weeder.Main ( main, mainWithConfig, mainWithConfig' ) where
+module Weeder.Main ( main, mainWithConfig ) where
 
 -- base
-import Control.Monad ( guard, unless )
+import Control.Exception ( throwIO )
+import Control.Monad ( guard )
 import Data.Bool
 import Data.Foldable
-import Data.List ( isSuffixOf )
+import Data.List ( isSuffixOf, sortOn )
 import Data.Version ( showVersion )
-import System.Exit ( exitFailure )
+import System.Exit ( exitFailure, ExitCode(..), exitWith )
 
 -- containers
 import qualified Data.Map.Strict as Map
@@ -23,8 +24,8 @@ import qualified Data.Set as Set
 -- text
 import qualified Data.Text as T
 
--- dhall
-import qualified Dhall
+-- toml-reader
+import qualified TOML
 
 -- directory
 import System.Directory ( canonicalizePath, doesDirectoryExist, doesFileExist, doesPathExist, listDirectory, withCurrentDirectory )
@@ -62,15 +63,19 @@ main = do
     execParser $
       info (optsP <**> helper <**> versionP) mempty
 
-  Dhall.input config configExpr
-    >>= mainWithConfig hieExt hieDirectories requireHsFiles
+  (exitCode, _) <- 
+    TOML.decodeFile (T.unpack configExpr)
+      >>= either throwIO pure
+      >>= mainWithConfig hieExt hieDirectories requireHsFiles
+  
+  exitWith exitCode
   where
     optsP = (,,,)
         <$> strOption
             ( long "config"
-                <> help "A Dhall expression for Weeder's configuration. Can either be a file path (a Dhall import) or a literal Dhall expression."
-                <> value "./weeder.dhall"
-                <> metavar "<weeder.dhall>"
+                <> help "A file path for Weeder's configuration."
+                <> value "./weeder.toml"
+                <> metavar "<weeder.toml>"
                 <> showDefaultWith T.unpack
             )
         <*> strOption
@@ -101,16 +106,8 @@ main = do
 --
 -- This will recursively find all files with the given extension in the given directories, perform
 -- analysis, and report all unused definitions according to the 'Config'.
-mainWithConfig :: String -> [FilePath] -> Bool -> Config -> IO ()
-mainWithConfig hieExt hieDirectories requireHsFiles weederConfig = 
-  mainWithConfig' hieExt hieDirectories requireHsFiles weederConfig 
-    >>= \(success, _) -> unless success exitFailure
-
-
--- | Alternative mainWithConfig that returns the analysis and whether a zero exit
--- code should be returned.
-mainWithConfig' :: String -> [FilePath] -> Bool -> Config -> IO (Bool, Analysis)
-mainWithConfig' hieExt hieDirectories requireHsFiles Config{ rootPatterns, typeClassRoots } = do
+mainWithConfig :: String -> [FilePath] -> Bool -> Config -> IO (ExitCode, Analysis)
+mainWithConfig hieExt hieDirectories requireHsFiles Config{ rootPatterns, typeClassRoots } = do
   hieFilePaths <-
     concat <$>
       traverse ( getFilesIn hieExt )
@@ -170,10 +167,12 @@ mainWithConfig' hieExt hieDirectories requireHsFiles Config{ rootPatterns, typeC
         dead
 
   for_ ( Map.toList warnings ) \( path, declarations ) ->
-    for_ declarations \( start, d ) ->
+    for_ (sortOn (srcLocLine . fst) declarations) \( start, d ) ->
       putStrLn $ showWeed path start d
 
-  pure (null warnings, analysis)
+  let exitCode = if null warnings then ExitSuccess else ExitFailure 1
+
+  pure (exitCode, analysis)
 
 showWeed :: FilePath -> RealSrcLoc -> Declaration -> String
 showWeed path start d =

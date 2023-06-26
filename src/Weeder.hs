@@ -179,7 +179,7 @@ data Root
 -- | Determine the set of all declaration reachable from a set of roots.
 reachable :: Analysis -> Set Root -> Set Declaration
 reachable Analysis{ dependencyGraph, exports } roots =
-  Set.fromList ( dfs ( foldMap rootDeclarations roots ) dependencyGraph )
+  Set.fromList ( dfs dependencyGraph ( foldMap rootDeclarations roots ) )
 
   where
 
