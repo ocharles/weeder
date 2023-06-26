@@ -1,0 +1,3 @@
+test/Spec/Monads/Monads.hs:20: $fFunctorIdentity'
+test/Spec/Monads/Monads.hs:23: $fApplicativeIdentity'
+test/Spec/Monads/Monads.hs:27: $fMonadIdentity'

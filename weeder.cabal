@@ -18,6 +18,7 @@ extra-doc-files:
 extra-source-files:
     test/Spec/*.toml
     test/Spec/*.stdout
+    test/Spec/*.failing
 
 library
   build-depends:
