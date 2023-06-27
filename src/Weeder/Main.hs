@@ -16,7 +16,7 @@ import Data.Bool
 import Data.Foldable
 import Data.List ( isSuffixOf, sortOn )
 import Data.Version ( showVersion )
-import System.Exit ( exitFailure, ExitCode(..), exitWith )
+import System.Exit ( exitFailure, ExitCode(..), exitSuccess, exitWith )
 
 -- containers
 import qualified Data.Map.Strict as Map
@@ -60,7 +60,7 @@ import Paths_weeder (version)
 -- | Parse command line arguments and into a 'Config' and run 'mainWithConfig'.
 main :: IO ()
 main = do
-  (configExpr, hieExt, hieDirectories, requireHsFiles) <-
+  (configExpr, hieExt, hieDirectories, requireHsFiles, noExit) <-
     execParser $
       info (optsP <**> helper <**> versionP) mempty
 
@@ -69,9 +69,11 @@ main = do
       >>= either throwIO pure
       >>= mainWithConfig hieExt hieDirectories requireHsFiles
   
-  exitWith exitCode
+  if noExit
+    then exitSuccess
+    else exitWith exitCode
   where
-    optsP = (,,,)
+    optsP = (,,,,)
         <$> strOption
             ( long "config"
                 <> help "A file path for Weeder's configuration."
@@ -94,6 +96,10 @@ main = do
         <*> switch
               ( long "require-hs-files"
                   <> help "Skip stale .hie files with no matching .hs modules"
+              )
+        <*> switch
+              ( long "no-exit-code"
+                  <> help "Do not give a negative exit if weeds"
               )
 
     versionP = infoOption ( "weeder version "
