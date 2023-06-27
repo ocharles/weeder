@@ -148,7 +148,7 @@ mainWithConfig hieExt hieDirectories requireHsFiles Config{ rootPatterns, typeCl
     reachableSet =
       reachable
         analysis
-        ( Set.map DeclarationRoot roots <> bool mempty ( Set.map DeclarationRoot ( implicitRoots analysis ) ) typeClassRoots )
+        ( Set.map DeclarationRoot roots <> bool mempty ( implicitRoots analysis ) typeClassRoots )
 
     dead =
       allDeclarations analysis Set.\\ reachableSet
