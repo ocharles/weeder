@@ -3,6 +3,7 @@
 {-# language FlexibleContexts #-}
 {-# language NamedFieldPuns #-}
 {-# language OverloadedStrings #-}
+{-# language LambdaCase #-}
 
 -- | This module provides an entry point to the Weeder executable.
 
@@ -11,7 +12,6 @@ module Weeder.Main ( main, mainWithConfig ) where
 -- base
 import Control.Exception ( throwIO )
 import Control.Monad ( guard )
-import Data.Bool
 import Data.Foldable
 import Data.List ( isSuffixOf, sortOn )
 import Data.Version ( showVersion )
@@ -107,7 +107,7 @@ main = do
 -- This will recursively find all files with the given extension in the given directories, perform
 -- analysis, and report all unused definitions according to the 'Config'.
 mainWithConfig :: String -> [FilePath] -> Bool -> Config -> IO (ExitCode, Analysis)
-mainWithConfig hieExt hieDirectories requireHsFiles Config{ rootPatterns, typeClassRoots } = do
+mainWithConfig hieExt hieDirectories requireHsFiles Config{ rootPatterns, typeClassRoots, rootInstances, rootClasses } = do
   hieFilePaths <-
     concat <$>
       traverse ( getFilesIn hieExt )
@@ -148,7 +148,7 @@ mainWithConfig hieExt hieDirectories requireHsFiles Config{ rootPatterns, typeCl
     reachableSet =
       reachable
         analysis
-        ( Set.map DeclarationRoot roots <> bool mempty ( implicitRoots analysis ) typeClassRoots )
+        ( Set.map DeclarationRoot roots <> filterImplicitRoots ( implicitRoots analysis ) )
 
     dead =
       allDeclarations analysis Set.\\ reachableSet
@@ -173,6 +173,15 @@ mainWithConfig hieExt hieDirectories requireHsFiles Config{ rootPatterns, typeCl
   let exitCode = if null warnings then ExitSuccess else ExitFailure 1
 
   pure (exitCode, analysis)
+
+  where
+
+    filterImplicitRoots = Set.filter $ \case
+      DeclarationRoot _ -> True -- keep implicit roots for rewrite rules
+      ModuleRoot _ -> True
+      InstanceRoot _ (Right t) c -> typeClassRoots || any (occNameString c =~) rootClasses || any (t =~) rootInstances
+      _ -> False
+      
 
 showWeed :: FilePath -> RealSrcLoc -> Declaration -> String
 showWeed path start d =

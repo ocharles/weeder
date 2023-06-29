@@ -1,3 +1,5 @@
-roots = [ "Spec.InstanceTypeclass.InstanceTypeclass.\\$fRootClassChar" ]
+roots = []
 
 type-class-roots = false
+
+root-instances = [ "RootClass Char" ]

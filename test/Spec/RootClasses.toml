@@ -1,0 +1,5 @@
+roots = []
+
+type-class-roots = false
+
+root-classes = [ "Show", "Ord", "Bar" ]
