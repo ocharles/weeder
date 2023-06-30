@@ -15,6 +15,6 @@ class RootClass a where
 
 -- this instance is explicitly marked as root,
 -- hence RootClass will not show up in the output
--- (note the way it is written in InstanceTypeclass.dhall)
+-- (note the way it is written in InstanceTypeclass.toml)
 instance RootClass Char where
   rootClass = id

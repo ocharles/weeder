@@ -13,14 +13,14 @@ data Shape = Circle | Square | Triangle
 data Colour = Red | Green | Blue
   deriving (Enum, Bounded)
 
-planets = [minBound .. (maxBound :: Planet)] -- also doesn't break (GHC 9.4.4)
+planets = [minBound .. (maxBound :: Planet)]
 
-letters = map f [minBound .. maxBound] -- also doesn't break (GHC 9.4.4)
+letters = map f [minBound .. maxBound]
   where
     f :: Letter -> String
     f = show
 
-shapes = [minBound .. maxBound] :: [Shape] -- also doesn't break (GHC 9.4.4)
+shapes = [minBound .. maxBound] :: [Shape]
 
 colours :: [Colour]
-colours = [minBound .. maxBound] :: [Colour] -- breaks (GHC 9.4.4)
+colours = [minBound .. maxBound] :: [Colour] -- breaks

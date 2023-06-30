@@ -32,7 +32,7 @@ foo = do
   _x <- Identity 3
   Identity 4
 
-bar :: Identity' Integer -- oh no (the type signature breaks the evidence variables 9.4.4)
+bar :: Identity' Integer -- oh no (the type signature breaks the evidence variables)
 bar = do
   _x <- Identity' 3
   Identity' 4

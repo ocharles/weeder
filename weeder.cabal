@@ -99,7 +99,6 @@ test-suite weeder-test
     Spec.OverloadedLabels.OverloadedLabels
     Spec.OverloadedLists.OverloadedLists
     Spec.OverloadedStrings.OverloadedStrings
-    Spec.OverloadedStringsNoSig.OverloadedStringsNoSig
     Spec.RangeEnum.RangeEnum
     Spec.RootClasses.RootClasses
     Spec.StandaloneDeriving.StandaloneDeriving
