@@ -101,7 +101,7 @@ import GHC.Types.SrcLoc ( RealSrcSpan, realSrcSpanEnd, realSrcSpanStart )
 import Control.Lens ( (%=) )
 
 -- mtl
-import Control.Monad.State.Class ( MonadState, get )
+import Control.Monad.State.Class ( MonadState, get, gets )
 
 -- transformers
 import Control.Monad.Trans.Maybe ( runMaybeT )
@@ -162,6 +162,9 @@ data Analysis =
     , requestedEvidence :: Map Declaration [Name]
       -- ^ Map from declarations to Names from which evidence is to be 
       -- followed back to the binding. 
+    , prettyPrintedType :: Map Declaration String
+      -- ^ Used to match against the types of instances and to replace the
+      -- appearance of declarations in the output
     }
   deriving
     ( Generic )
@@ -169,7 +172,7 @@ data Analysis =
 
 -- | The empty analysis - the result of analysing zero @.hie@ files.
 emptyAnalysis :: Analysis
-emptyAnalysis = Analysis empty mempty mempty mempty mempty mempty
+emptyAnalysis = Analysis empty mempty mempty mempty mempty mempty mempty
 
 
 -- | A root for reachability analysis.
@@ -179,8 +182,7 @@ data Root
   | -- | We store extra information for instances in order to be able
     -- to specify e.g. all instances of a class as roots.
     InstanceRoot Declaration
-      (Either TypeIndex String) -- ^ Type of the instance, converted to 'Right' at 
-                                -- the end of the analysis of each hie file
+      (Maybe TypeIndex) -- ^ Type of the instance, set to Nothing when no longer relevant
       OccName -- ^ Name of the parent class
   | -- | All exported declarations in a module are roots.
     ModuleRoot Module
@@ -222,11 +224,15 @@ analyseHieFile HieFile{ hie_asts = HieASTs hieASTs, hie_exports, hie_module, hie
 
   where
 
-    lookupInstanceTypes =
-      #implicitRoots %= 
-        Set.map \case
-          InstanceRoot d (Left t) parent -> InstanceRoot d ( Right (renderType $ recoverFullType t hie_types) ) parent
-          r -> r
+    lookupInstanceTypes = do
+      roots <- gets implicitRoots
+      for_ roots \case
+        InstanceRoot d (Just t) _ -> #prettyPrintedType %= Map.insert d ( renderType $ recoverFullType t hie_types )
+        _ -> pure ()
+      -- To avoid going over the same roots again in other modules:
+      #implicitRoots %= Set.map \case
+        InstanceRoot d _ parent -> InstanceRoot d Nothing parent
+        r -> r
     
     renderType = showSDocOneLine defaultSDocContext . pprIfaceSigmaType ShowForAllWhen . hieTypeToIface
 
@@ -300,7 +306,7 @@ addImplicitRoot x =
 
 addInstanceRoot :: MonadState Analysis m => Declaration -> TypeIndex -> Name -> m ()
 addInstanceRoot x t cls =
-  #implicitRoots %= Set.insert (InstanceRoot x (Left t) (nameOccName cls))
+  #implicitRoots %= Set.insert (InstanceRoot x (Just t) (nameOccName cls))
 
 
 define :: MonadState Analysis m => Declaration -> RealSrcSpan -> m ()

@@ -1,1 +1,1 @@
-test/Spec/DeriveGeneric/DeriveGeneric.hs:12: $fFromJSONT
+test/Spec/DeriveGeneric/DeriveGeneric.hs:12: $fFromJSONT :: FromJSON T

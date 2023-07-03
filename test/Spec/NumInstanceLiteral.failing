@@ -1,1 +1,1 @@
-test/Spec/NumInstanceLiteral/NumInstanceLiteral.hs:7: $fNumModulo1
+test/Spec/NumInstanceLiteral/NumInstanceLiteral.hs:7: $fNumModulo1 :: Num Modulo1

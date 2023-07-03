@@ -1,1 +1,1 @@
-test/Spec/StandaloneDeriving/StandaloneDeriving.hs:6: $fShowA
+test/Spec/StandaloneDeriving/StandaloneDeriving.hs:6: $fShowA :: Show A

@@ -1,1 +1,1 @@
-test/Spec/RangeEnum/RangeEnum.hs:14: $fEnumColour
+test/Spec/RangeEnum/RangeEnum.hs:14: $fEnumColour :: Enum Colour

@@ -1,1 +1,1 @@
-test/Spec/RootClasses/RootClasses.hs:5: $fEnumT
+test/Spec/RootClasses/RootClasses.hs:5: $fEnumT :: Enum T

@@ -1,1 +1,1 @@
-test/Spec/OverloadedLists/OverloadedLists.hs:9: $fIsListBetterList
+test/Spec/OverloadedLists/OverloadedLists.hs:9: $fIsListBetterList :: IsList (BetterList x)

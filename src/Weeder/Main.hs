@@ -148,7 +148,7 @@ mainWithConfig hieExt hieDirectories requireHsFiles Config{ rootPatterns, typeCl
     reachableSet =
       reachable
         analysis
-        ( Set.map DeclarationRoot roots <> filterImplicitRoots ( implicitRoots analysis ) )
+        ( Set.map DeclarationRoot roots <> filterImplicitRoots (prettyPrintedType analysis) ( implicitRoots analysis ) )
 
     dead =
       allDeclarations analysis Set.\\ reachableSet
@@ -168,7 +168,9 @@ mainWithConfig hieExt hieDirectories requireHsFiles Config{ rootPatterns, typeCl
 
   for_ ( Map.toList warnings ) \( path, declarations ) ->
     for_ (sortOn (srcLocLine . fst) declarations) \( start, d ) ->
-      putStrLn $ showWeed path start d
+      case Map.lookup d (prettyPrintedType analysis) of
+        Nothing -> putStrLn $ showWeed path start d
+        Just t -> putStrLn $ showWeed path start d <> " :: " <> t
 
   let exitCode = if null warnings then ExitSuccess else ExitFailure 1
 
@@ -176,11 +178,14 @@ mainWithConfig hieExt hieDirectories requireHsFiles Config{ rootPatterns, typeCl
 
   where
 
-    filterImplicitRoots = Set.filter $ \case
+    filterImplicitRoots printedTypeMap = Set.filter $ \case
       DeclarationRoot _ -> True -- keep implicit roots for rewrite rules
       ModuleRoot _ -> True
-      InstanceRoot _ (Right t) c -> typeClassRoots || any (occNameString c =~) rootClasses || any (t =~) rootInstances
-      _ -> False
+      InstanceRoot d _ c -> typeClassRoots || any (occNameString c =~) rootClasses || matchingType
+        where
+          matchingType = case Map.lookup d printedTypeMap of
+            Just t -> any (t =~) rootInstances
+            Nothing -> False
       
 
 showWeed :: FilePath -> RealSrcLoc -> Declaration -> String
