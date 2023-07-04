@@ -1,1 +1,1 @@
-test/Spec/OverloadedLabels/OverloadedLabels.hs:17: $fHasPoint"y"Int :: Has Point "y" Int
+test/Spec/OverloadedLabels/OverloadedLabels.hs:17: (Instance) :: Has Point "y" Int

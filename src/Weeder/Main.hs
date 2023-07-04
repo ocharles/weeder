@@ -170,7 +170,7 @@ mainWithConfig hieExt hieDirectories requireHsFiles Config{ rootPatterns, typeCl
     for_ (sortOn (srcLocLine . fst) declarations) \( start, d ) ->
       case Map.lookup d (prettyPrintedType analysis) of
         Nothing -> putStrLn $ showWeed path start d
-        Just t -> putStrLn $ showWeed path start d <> " :: " <> t
+        Just t -> putStrLn $ showPath path start <> "(Instance) :: " <> t
 
   let exitCode = if null warnings then ExitSuccess else ExitFailure 1
 
@@ -190,8 +190,13 @@ mainWithConfig hieExt hieDirectories requireHsFiles Config{ rootPatterns, typeCl
 
 showWeed :: FilePath -> RealSrcLoc -> Declaration -> String
 showWeed path start d =
-  path <> ":" <> show ( srcLocLine start ) <> ": "
+  showPath path start 
     <> occNameString ( declOccName d)
+
+
+showPath :: FilePath -> RealSrcLoc -> String
+showPath path start =
+  path <> ":" <> show ( srcLocLine start ) <> ": "
 
 
 -- | Recursively search for files with the given extension in given directory
