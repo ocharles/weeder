@@ -1,3 +1,5 @@
-roots = [ "Spec.NumInstanceLiteral.NumInstanceLiteral.zero" ]
+roots = [ "Spec.NumInstanceLiteral.NumInstanceLiteral.zero"
+        , "Spec.NumInstanceLiteral.NumInstanceLiteral.Modulo1"
+        ]
 
 type-class-roots = false

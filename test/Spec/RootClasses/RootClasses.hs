@@ -4,8 +4,6 @@ module Spec.RootClasses.RootClasses where
 
 data T = MkT deriving (Eq, Show, Enum)
 
-data U = MkU
-
 deriving instance Ord T
 
 data V = MkV

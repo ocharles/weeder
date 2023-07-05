@@ -417,10 +417,15 @@ analyseDataDeclaration n@Node{ sourcedNodeInfo } = do
         ( First . Just )
         ( findIdentifiers ( any isDataDec ) n )
     )
-    \dataTypeName ->
+    \dataTypeName -> do
+      define dataTypeName (nodeSpan n)
+
       for_ ( constructors n ) \constructor ->
         for_ ( foldMap ( First . Just ) ( findIdentifiers ( any isConDec ) constructor ) ) \conDec -> do
           addDependency conDec dataTypeName
+
+          -- uncomment to make unused constructors show up in the output
+          --define conDec (nodeSpan constructor)
 
           for_ ( uses constructor ) ( addDependency conDec )
 

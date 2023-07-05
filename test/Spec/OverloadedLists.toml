@@ -1,3 +1,4 @@
-roots = [ "Spec.OverloadedLists.OverloadedLists.root" ]
+roots = [ "Spec.OverloadedLists.OverloadedLists.root"
+        , "Spec.OverloadedLists.OverloadedLists.BetterList" ]
 
 type-class-roots = false
