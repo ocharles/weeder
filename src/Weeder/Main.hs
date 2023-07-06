@@ -107,7 +107,7 @@ main = do
 -- This will recursively find all files with the given extension in the given directories, perform
 -- analysis, and report all unused definitions according to the 'Config'.
 mainWithConfig :: String -> [FilePath] -> Bool -> Config -> IO (ExitCode, Analysis)
-mainWithConfig hieExt hieDirectories requireHsFiles Config{ rootPatterns, typeClassRoots, rootInstances, rootClasses } = do
+mainWithConfig hieExt hieDirectories requireHsFiles weederConfig@Config{ rootPatterns, typeClassRoots, rootInstances, rootClasses } = do
   hieFilePaths <-
     concat <$>
       traverse ( getFilesIn hieExt )
@@ -133,7 +133,7 @@ mainWithConfig hieExt hieDirectories requireHsFiles Config{ rootPatterns, typeCl
        in requireHsFiles ==> hsFileExists
 
   analysis <-
-    execStateT ( analyseHieFiles hieFileResults' ) emptyAnalysis
+    execStateT ( analyseHieFiles weederConfig hieFileResults' ) emptyAnalysis
 
   let
     roots =
@@ -181,7 +181,7 @@ mainWithConfig hieExt hieDirectories requireHsFiles Config{ rootPatterns, typeCl
     filterImplicitRoots printedTypeMap = Set.filter $ \case
       DeclarationRoot _ -> True -- keep implicit roots for rewrite rules
       ModuleRoot _ -> True
-      InstanceRoot d _ c -> typeClassRoots || any (occNameString c =~) rootClasses || matchingType
+      InstanceRoot d c -> typeClassRoots || any (occNameString c =~) rootClasses || matchingType
         where
           matchingType = case Map.lookup d printedTypeMap of
             Just t -> any (t =~) rootInstances
