@@ -31,7 +31,7 @@ import Algebra.Graph.ToGraph ( dfs )
 
 -- base
 import Control.Applicative ( Alternative )
-import Control.Monad ( guard, msum, when )
+import Control.Monad ( guard, msum, when, unless )
 import Data.Maybe ( mapMaybe )
 import Data.Foldable ( for_, traverse_ )
 import Data.Functor ( (<&>) )
@@ -101,10 +101,15 @@ import GHC.Types.SrcLoc ( RealSrcSpan, realSrcSpanEnd, realSrcSpanStart )
 import Control.Lens ( (%=) )
 
 -- mtl
-import Control.Monad.State.Class ( MonadState, get, gets )
+import Control.Monad.State.Class ( MonadState, get )
+import Control.Monad.Reader.Class ( MonadReader, asks)
 
 -- transformers
 import Control.Monad.Trans.Maybe ( runMaybeT )
+import Control.Monad.Trans.Reader ( runReaderT )
+
+-- weeder
+import Weeder.Config (Config(..))
 
 
 data Declaration =
@@ -170,6 +175,13 @@ data Analysis =
     ( Generic )
 
 
+data AnalysisInfo =
+  AnalysisInfo
+    { currentHieFile :: HieFile
+    , weederConfig :: Config
+    }
+
+
 -- | The empty analysis - the result of analysing zero @.hie@ files.
 emptyAnalysis :: Analysis
 emptyAnalysis = Analysis empty mempty mempty mempty mempty mempty mempty
@@ -182,7 +194,6 @@ data Root
   | -- | We store extra information for instances in order to be able
     -- to specify e.g. all instances of a class as roots.
     InstanceRoot Declaration
-      (Maybe TypeIndex) -- ^ Type of the instance, set to Nothing when no longer relevant
       OccName -- ^ Name of the parent class
   | -- | All exported declarations in a module are roots.
     ModuleRoot Module
@@ -199,7 +210,7 @@ reachable Analysis{ dependencyGraph, exports } roots =
 
     rootDeclarations = \case
       DeclarationRoot d -> [ d ]
-      InstanceRoot d _ _ -> [ d ] -- filter InstanceRoots in `Main.hs`
+      InstanceRoot d _ -> [ d ] -- filter InstanceRoots in `Main.hs`
       ModuleRoot m -> foldMap Set.toList ( Map.lookup m exports )
 
 
@@ -210,37 +221,34 @@ allDeclarations Analysis{ dependencyGraph } =
 
 
 -- | Incrementally update 'Analysis' with information in a 'HieFile'.
-analyseHieFile :: MonadState Analysis m => HieFile -> m ()
-analyseHieFile HieFile{ hie_asts = HieASTs hieASTs, hie_exports, hie_module, hie_hs_file, hie_types } = do
+analyseHieFile :: ( MonadState Analysis m, MonadReader AnalysisInfo m ) => m ()
+analyseHieFile = do
+  HieFile{ hie_asts = HieASTs hieASTs, hie_exports, hie_module, hie_hs_file } <- asks currentHieFile
   #modulePaths %= Map.insert hie_module hie_hs_file
 
   for_ hieASTs \ast -> do
     addAllDeclarations ast
     topLevelAnalysis ast
 
-  lookupInstanceTypes
-
   for_ hie_exports ( analyseExport hie_module )
 
+
+lookupPprType :: MonadReader AnalysisInfo m => TypeIndex -> m String
+lookupPprType t = do
+  HieFile{ hie_types } <- asks currentHieFile
+  pure . renderType $ recoverFullType t hie_types
+    
   where
 
-    lookupInstanceTypes = do
-      roots <- gets implicitRoots
-      for_ roots \case
-        InstanceRoot d (Just t) _ -> #prettyPrintedType %= Map.insert d ( renderType $ recoverFullType t hie_types )
-        _ -> pure ()
-      -- To avoid going over the same roots again in other modules:
-      #implicitRoots %= Set.map \case
-        InstanceRoot d _ parent -> InstanceRoot d Nothing parent
-        r -> r
-    
     renderType = showSDocOneLine defaultSDocContext . pprIfaceSigmaType ShowForAllWhen . hieTypeToIface
 
 
 -- | Incrementally update 'Analysis' with information in every 'HieFile'.
-analyseHieFiles :: (Foldable f, MonadState Analysis m) => f HieFile -> m ()
-analyseHieFiles hieFiles = do
-  traverse_ analyseHieFile hieFiles
+analyseHieFiles :: (Foldable f, MonadState Analysis m) => Config -> f HieFile -> m ()
+analyseHieFiles weederConfig hieFiles = do
+  for_ hieFiles \hieFile -> do
+    let info = AnalysisInfo hieFile weederConfig
+    runReaderT analyseHieFile info
 
   let asts = concatMap (Map.elems . getAsts . hie_asts) hieFiles
 
@@ -304,9 +312,15 @@ addImplicitRoot x =
   #implicitRoots %= Set.insert (DeclarationRoot x)
 
 
-addInstanceRoot :: MonadState Analysis m => Declaration -> TypeIndex -> Name -> m ()
-addInstanceRoot x t cls =
-  #implicitRoots %= Set.insert (InstanceRoot x (Just t) (nameOccName cls))
+addInstanceRoot :: ( MonadState Analysis m, MonadReader AnalysisInfo m ) => Declaration -> TypeIndex -> Name -> m ()
+addInstanceRoot x t cls = do
+  #implicitRoots %= Set.insert (InstanceRoot x (nameOccName cls))
+
+  -- since instances will not appear in the output if typeClassRoots is True
+  Config{ typeClassRoots } <- asks weederConfig
+  unless typeClassRoots $ do
+    str <- lookupPprType t
+    #prettyPrintedType %= Map.insert x str
 
 
 define :: MonadState Analysis m => Declaration -> RealSrcSpan -> m ()
@@ -328,7 +342,7 @@ addAllDeclarations n = do
   for_ ( findIdentifiers ( const True ) n ) addDeclaration
 
 
-topLevelAnalysis :: MonadState Analysis m => HieAST TypeIndex -> m ()
+topLevelAnalysis :: ( MonadState Analysis m, MonadReader AnalysisInfo m ) => HieAST TypeIndex -> m ()
 topLevelAnalysis n@Node{ nodeChildren } = do
   analysed <-
     runMaybeT
@@ -375,7 +389,7 @@ analyseRewriteRule n@Node{ sourcedNodeInfo } = do
   for_ ( uses n ) addImplicitRoot
 
 
-analyseInstanceDeclaration :: ( Alternative m, MonadState Analysis m ) => HieAST TypeIndex -> m ()
+analyseInstanceDeclaration :: ( Alternative m, MonadState Analysis m, MonadReader AnalysisInfo m ) => HieAST TypeIndex -> m ()
 analyseInstanceDeclaration n@Node{ nodeSpan, sourcedNodeInfo } = do
   guard $ any (Set.member ("ClsInstD", "InstDecl") . Set.map unNodeAnnotation . nodeAnnotations) $ getSourcedNodeInfo sourcedNodeInfo
 
@@ -415,7 +429,7 @@ analyseClassDeclaration n@Node{ nodeSpan, sourcedNodeInfo } = do
           False
 
 
-analyseDataDeclaration :: ( Alternative m, MonadState Analysis m ) => HieAST TypeIndex -> m ()
+analyseDataDeclaration :: ( Alternative m, MonadState Analysis m, MonadReader AnalysisInfo m ) => HieAST TypeIndex -> m ()
 analyseDataDeclaration n@Node{ sourcedNodeInfo } = do
   guard $ any (Set.member ("DataDecl", "TyClDecl") . Set.map unNodeAnnotation . nodeAnnotations) $ getSourcedNodeInfo sourcedNodeInfo
 
@@ -471,7 +485,7 @@ derivedInstances n@Node{ nodeChildren, sourcedNodeInfo } =
     foldMap derivedInstances nodeChildren
 
 
-analyseStandaloneDeriving :: (Alternative m, MonadState Analysis m) => HieAST TypeIndex -> m ()
+analyseStandaloneDeriving :: ( Alternative m, MonadState Analysis m, MonadReader AnalysisInfo m ) => HieAST TypeIndex -> m ()
 analyseStandaloneDeriving n@Node{ nodeSpan, sourcedNodeInfo } = do
   guard $ any (Set.member ("DerivDecl", "DerivDecl") . Set.map unNodeAnnotation . nodeAnnotations) $ getSourcedNodeInfo sourcedNodeInfo
 
