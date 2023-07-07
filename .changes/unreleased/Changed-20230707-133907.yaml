@@ -1,0 +1,3 @@
+kind: Changed
+body: Weeder now builds with `optparse-applicative-0.18`.
+time: 2023-07-07T13:39:07.717211456+01:00
