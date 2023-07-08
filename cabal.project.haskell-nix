@@ -1,0 +1,4 @@
+-- Haskell.nix overrides. We don't put these in cabal.project, because Cabal
+-- will interpret them as local packages, and try to build them when we cabal
+-- build. The only reason we have to specify these is for Haskell.nix to know to
+-- override these packages by fetching them rather than using Hackage.
