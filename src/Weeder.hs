@@ -61,7 +61,7 @@ import GHC.Types.Avail
 import GHC.Types.FieldLabel ( FieldLabel( FieldLabel, flSelector ) )
 import GHC.Iface.Ext.Types
   ( BindType( RegularBind )
-  , ContextInfo( Decl, ValBind, PatternBind, Use, TyDecl, ClassTyDecl, EvidenceVarBind )
+  , ContextInfo( Decl, ValBind, PatternBind, Use, TyDecl, ClassTyDecl, EvidenceVarBind, RecField )
   , DeclType( DataDec, ClassDec, ConDec )
   , EvVarSource ( EvInstBind, cls )
   , HieAST( Node, nodeChildren, nodeSpan, sourcedNodeInfo )
@@ -71,6 +71,7 @@ import GHC.Iface.Ext.Types
   , NodeAnnotation( NodeAnnotation, nodeAnnotType )
   , NodeInfo( nodeIdentifiers, nodeAnnotations )
   , Scope( ModuleScope )
+  , RecFieldContext ( RecFieldOcc, RecFieldDecl )
   , TypeIndex
   , getSourcedNodeInfo
   )
@@ -236,7 +237,7 @@ lookupPprType :: MonadReader AnalysisInfo m => TypeIndex -> m String
 lookupPprType t = do
   HieFile{ hie_types } <- asks currentHieFile
   pure . renderType $ recoverFullType t hie_types
-    
+
   where
 
     renderType = showSDocOneLine defaultSDocContext . pprIfaceSigmaType ShowForAllWhen . hieTypeToIface
@@ -429,6 +430,11 @@ analyseDataDeclaration n@Node{ sourcedNodeInfo } = do
 
           for_ ( uses constructor ) ( addDependency conDec )
 
+          -- Connecting record fields to their constructors
+          for_ ( recFieldDecls constructor ) \recFieldDec ->
+            for_ ( foldMap ( First . Just ) ( findIdentifiers ( any isRecFieldDec ) recFieldDec ) ) 
+              (`addDependency` conDec)
+
   for_ ( derivedInstances n ) \(d, cs, ids, ast) -> do
     define d (nodeSpan ast)
 
@@ -450,23 +456,30 @@ analyseDataDeclaration n@Node{ sourcedNodeInfo } = do
       Decl ConDec _ -> True
       _             -> False
 
+    isRecFieldDec = \case
+      RecField RecFieldDecl _ -> True
+      _                       -> False
+
 
 constructors :: HieAST a -> Seq ( HieAST a )
-constructors n@Node{ nodeChildren, sourcedNodeInfo } =
-  if any (any ( ("ConDecl" ==) . unpackFS . nodeAnnotType) . nodeAnnotations) (getSourcedNodeInfo sourcedNodeInfo) then
-    pure n
+constructors = findNodeTypes "ConDecl"
 
-  else
-    foldMap constructors nodeChildren
+
+recFieldDecls :: HieAST a -> Seq ( HieAST a )
+recFieldDecls = findNodeTypes "ConDeclField"
 
 
 derivedInstances :: HieAST a -> Seq (Declaration, Set Name, IdentifierDetails a, HieAST a)
-derivedInstances n@Node{ nodeChildren, sourcedNodeInfo } =
-  if any (Set.member ("HsDerivingClause", "HsDerivingClause") . Set.map unNodeAnnotation . nodeAnnotations) $ getSourcedNodeInfo sourcedNodeInfo
-    then findEvInstBinds n
+derivedInstances n = findNodeTypes "HsDerivingClause" n >>= findEvInstBinds
+
+
+findNodeTypes :: String -> HieAST a -> Seq ( HieAST a )
+findNodeTypes t n@Node{ nodeChildren, sourcedNodeInfo } =
+  if any (any ( (t ==) . unpackFS . nodeAnnotType) . nodeAnnotations) (getSourcedNodeInfo sourcedNodeInfo) then
+    pure n
 
   else
-    foldMap derivedInstances nodeChildren
+    foldMap (findNodeTypes t) nodeChildren
 
 
 analyseStandaloneDeriving :: ( Alternative m, MonadState Analysis m, MonadReader AnalysisInfo m ) => HieAST TypeIndex -> m ()
@@ -481,7 +494,7 @@ analyseStandaloneDeriving n@Node{ nodeSpan, sourcedNodeInfo } = do
     for_ (uses n) $ addDependency d
 
     case identType ids of
-      Just t -> for_ cs (addInstanceRoot d t) 
+      Just t -> for_ cs (addInstanceRoot d t)
       Nothing -> pure ()
 
 
@@ -567,7 +580,19 @@ findIdentifiers' f n@Node{ sourcedNodeInfo, nodeChildren } =
 uses :: HieAST a -> Set Declaration
 uses =
     foldMap Set.singleton
-  . findIdentifiers \identInfo -> Use `Set.member` identInfo
+  . findIdentifiers (any isUse)
+
+  where
+
+    isUse :: ContextInfo -> Bool
+    isUse = \case
+      Use -> True
+      -- not RecFieldMatch and RecFieldDecl because they occur under
+      -- data declarations, which we do not want to add as dependencies
+      -- because that would make the graph no longer acyclic
+      -- RecFieldAssign will be most likely accompanied by the constructor
+      RecField RecFieldOcc _ -> True
+      _ -> False
 
 
 nameToDeclaration :: Name -> Maybe Declaration
