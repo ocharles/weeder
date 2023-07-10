@@ -1,0 +1,2 @@
+test/Spec/InstanceTypeclass/InstanceTypeclass.hs:4: Foo
+test/Spec/InstanceTypeclass/InstanceTypeclass.hs:10: (Instance) :: Foo Char

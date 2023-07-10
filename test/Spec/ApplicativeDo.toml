@@ -1,0 +1,3 @@
+roots = [ "Spec.ApplicativeDo.ApplicativeDo.root" ]
+
+type-class-roots = false

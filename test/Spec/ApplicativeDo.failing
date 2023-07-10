@@ -1,0 +1,2 @@
+test/Spec/ApplicativeDo/ApplicativeDo.hs:6: (Instance) :: Functor Foo
+test/Spec/ApplicativeDo/ApplicativeDo.hs:9: (Instance) :: Applicative Foo

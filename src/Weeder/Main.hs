@@ -3,6 +3,7 @@
 {-# language FlexibleContexts #-}
 {-# language NamedFieldPuns #-}
 {-# language OverloadedStrings #-}
+{-# language LambdaCase #-}
 
 -- | This module provides an entry point to the Weeder executable.
 
@@ -10,9 +11,7 @@ module Weeder.Main ( main, mainWithConfig ) where
 
 -- base
 import Control.Exception ( throwIO )
-import Control.Monad ( guard, when )
-import Control.Monad.IO.Class ( liftIO )
-import Data.Bool
+import Control.Monad ( guard )
 import Data.Foldable
 import Data.List ( isSuffixOf, sortOn )
 import Data.Version ( showVersion )
@@ -108,7 +107,7 @@ main = do
 -- This will recursively find all files with the given extension in the given directories, perform
 -- analysis, and report all unused definitions according to the 'Config'.
 mainWithConfig :: String -> [FilePath] -> Bool -> Config -> IO (ExitCode, Analysis)
-mainWithConfig hieExt hieDirectories requireHsFiles Config{ rootPatterns, typeClassRoots } = do
+mainWithConfig hieExt hieDirectories requireHsFiles weederConfig@Config{ rootPatterns, typeClassRoots, rootInstances, rootClasses } = do
   hieFilePaths <-
     concat <$>
       traverse ( getFilesIn hieExt )
@@ -125,13 +124,16 @@ mainWithConfig hieExt hieDirectories requireHsFiles Config{ rootPatterns, typeCl
   nameCache <-
     initNameCache 'z' []
 
+  hieFileResults <-
+    mapM ( readCompatibleHieFileOrExit nameCache ) hieFilePaths
+
+  let
+    hieFileResults' = flip filter hieFileResults \hieFileResult ->
+      let hsFileExists = any ( hie_hs_file hieFileResult `isSuffixOf` ) hsFilePaths
+       in requireHsFiles ==> hsFileExists
+
   analysis <-
-    flip execStateT emptyAnalysis do
-      for_ hieFilePaths \hieFilePath -> do
-        hieFileResult <- liftIO ( readCompatibleHieFileOrExit nameCache hieFilePath )
-        let hsFileExists = any ( hie_hs_file hieFileResult `isSuffixOf` ) hsFilePaths
-        when (requireHsFiles ==> hsFileExists) do
-          analyseHieFile hieFileResult
+    execStateT ( analyseHieFiles weederConfig hieFileResults' ) emptyAnalysis
 
   let
     roots =
@@ -146,7 +148,7 @@ mainWithConfig hieExt hieDirectories requireHsFiles Config{ rootPatterns, typeCl
     reachableSet =
       reachable
         analysis
-        ( Set.map DeclarationRoot roots <> bool mempty ( Set.map DeclarationRoot ( implicitRoots analysis ) ) typeClassRoots )
+        ( Set.map DeclarationRoot roots <> filterImplicitRoots (prettyPrintedType analysis) ( implicitRoots analysis ) )
 
     dead =
       allDeclarations analysis Set.\\ reachableSet
@@ -166,16 +168,35 @@ mainWithConfig hieExt hieDirectories requireHsFiles Config{ rootPatterns, typeCl
 
   for_ ( Map.toList warnings ) \( path, declarations ) ->
     for_ (sortOn (srcLocLine . fst) declarations) \( start, d ) ->
-      putStrLn $ showWeed path start d
+      case Map.lookup d (prettyPrintedType analysis) of
+        Nothing -> putStrLn $ showWeed path start d
+        Just t -> putStrLn $ showPath path start <> "(Instance) :: " <> t
 
   let exitCode = if null warnings then ExitSuccess else ExitFailure 1
 
   pure (exitCode, analysis)
 
+  where
+
+    filterImplicitRoots printedTypeMap = Set.filter $ \case
+      DeclarationRoot _ -> True -- keep implicit roots for rewrite rules
+      ModuleRoot _ -> True
+      InstanceRoot d c -> typeClassRoots || any (occNameString c =~) rootClasses || matchingType
+        where
+          matchingType = case Map.lookup d printedTypeMap of
+            Just t -> any (t =~) rootInstances
+            Nothing -> False
+      
+
 showWeed :: FilePath -> RealSrcLoc -> Declaration -> String
 showWeed path start d =
-  path <> ":" <> show ( srcLocLine start ) <> ": "
+  showPath path start 
     <> occNameString ( declOccName d)
+
+
+showPath :: FilePath -> RealSrcLoc -> String
+showPath path start =
+  path <> ":" <> show ( srcLocLine start ) <> ": "
 
 
 -- | Recursively search for files with the given extension in given directory

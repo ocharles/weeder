@@ -1,0 +1,1 @@
+test/Spec/OverloadedLists/OverloadedLists.hs:9: (Instance) :: IsList (BetterList x)
