@@ -96,16 +96,12 @@ in the Dhall project).
 
 Weeder currently has a few limitations:
 
-## Type Class Instances
+## Overloaded syntax
 
-Weeder is not currently able to analyse whether a type class instance is used.
-For this reason, Weeder adds all symbols referenced to from a type class
-instance to the root set, keeping this code alive. In short, this means Weeder
-might not detect dead code if it's used from a type class instance which is
-never actually needed.
-
-You can toggle whether Weeder consider type class instances as roots with the
-`type-class-roots` configuration option.
+On some versions of GHC, Weeder might report various type classes that are used
+for syntax extensions as weeds. For example, `Num` and `IsString` classes might be
+flagged as weeds if they are only used for overloaded literal syntax (that is,
+the `fromInteger` and `fromString` methods).
 
 ## Template Haskell
 
