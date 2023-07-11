@@ -67,6 +67,9 @@ import GHC.Iface.Ext.Types
   , HieAST( Node, nodeChildren, nodeSpan, sourcedNodeInfo )
   , HieASTs( HieASTs, getAsts )
   , HieFile( HieFile, hie_asts, hie_exports, hie_module, hie_hs_file, hie_types )
+  , HieType( HTyVarTy, HAppTy, HTyConApp, HForAllTy, HFunTy, HQualTy, HLitTy, HCastTy, HCoercionTy )
+  , HieArgs( HieArgs )
+  , HieTypeFix( Roll )
   , IdentifierDetails( IdentifierDetails, identInfo, identType )
   , NodeAnnotation( NodeAnnotation, nodeAnnotType )
   , NodeInfo( nodeIdentifiers, nodeAnnotations )
@@ -86,7 +89,11 @@ import GHC.Iface.Ext.Utils
   )
 import GHC.Unit.Module ( Module, moduleStableString )
 import GHC.Utils.Outputable ( defaultSDocContext, showSDocOneLine )
-import GHC.Iface.Type ( ShowForAllFlag (ShowForAllWhen), pprIfaceSigmaType )
+import GHC.Iface.Type 
+  ( ShowForAllFlag (ShowForAllWhen)
+  , pprIfaceSigmaType
+  , IfaceTyCon (IfaceTyCon, ifaceTyConName)
+  )
 import GHC.Types.Name
   ( Name, nameModule_maybe, nameOccName
   , OccName
@@ -233,14 +240,47 @@ analyseHieFile = do
   for_ hie_exports ( analyseExport hie_module )
 
 
+lookupType :: MonadReader AnalysisInfo m => TypeIndex -> m HieTypeFix
+lookupType t = recoverFullType t . hie_types <$> asks currentHieFile
+
+
 lookupPprType :: MonadReader AnalysisInfo m => TypeIndex -> m String
-lookupPprType t = do
-  HieFile{ hie_types } <- asks currentHieFile
-  pure . renderType $ recoverFullType t hie_types
+lookupPprType = fmap renderType . lookupType
 
   where
 
     renderType = showSDocOneLine defaultSDocContext . pprIfaceSigmaType ShowForAllWhen . hieTypeToIface
+
+
+-- | Names mentioned within the type.
+typeToNames :: HieTypeFix -> Set Name
+typeToNames (Roll t) = case t of
+  HTyVarTy n -> Set.singleton n
+
+  HAppTy a (HieArgs args) -> 
+    typeToNames a <> hieArgsTypes args
+
+  HTyConApp (IfaceTyCon{ifaceTyConName}) (HieArgs args) ->
+    Set.singleton ifaceTyConName <> hieArgsTypes args
+
+  HForAllTy _ _ -> mempty
+
+  HFunTy _mult b c -> 
+    typeToNames b <> typeToNames c
+
+  HQualTy a b -> 
+    typeToNames a <> typeToNames b
+
+  HLitTy _ -> mempty
+
+  HCastTy a -> typeToNames a
+
+  HCoercionTy -> mempty
+
+  where
+
+    hieArgsTypes :: [(Bool, HieTypeFix)] -> Set Name
+    hieArgsTypes = foldMap (typeToNames . snd) . filter fst
 
 
 -- | Incrementally update 'Analysis' with information in every 'HieFile'.
@@ -317,9 +357,17 @@ addDeclaration decl =
 
 -- | Try and add vertices for all declarations in an AST - both
 -- those declared here, and those referred to from here.
-addAllDeclarations :: ( MonadState Analysis m ) => HieAST a -> m ()
+addAllDeclarations :: ( MonadState Analysis m, MonadReader AnalysisInfo m ) => HieAST TypeIndex -> m ()
 addAllDeclarations n = do
-  for_ ( findIdentifiers ( const True ) n ) addDeclaration
+  for_ ( findIdentifiers' ( const True ) n ) 
+    \(d, IdentifierDetails{ identType }, _) -> do
+      addDeclaration d
+      case identType of
+        Just t -> do
+          hieType <- lookupType t
+          let names = typeToNames hieType
+          traverse_ (traverse_ (addDependency d) . nameToDeclaration) names
+        Nothing -> pure ()
 
 
 topLevelAnalysis :: ( MonadState Analysis m, MonadReader AnalysisInfo m ) => HieAST TypeIndex -> m ()
