@@ -118,7 +118,7 @@ import Control.Monad.Trans.Maybe ( runMaybeT )
 import Control.Monad.Trans.Reader ( runReaderT )
 
 -- weeder
-import Weeder.Config ( Config( Config, typeClassRoots ) )
+import Weeder.Config ( Config( Config, typeClassRoots, unusedTypes ) )
 
 
 data Declaration =
@@ -359,22 +359,25 @@ addDeclaration decl =
 -- those declared here, and those referred to from here.
 addAllDeclarations :: ( MonadState Analysis m, MonadReader AnalysisInfo m ) => HieAST TypeIndex -> m ()
 addAllDeclarations n = do
+  Config{ unusedTypes } <- asks weederConfig
   for_ ( findIdentifiers' ( const True ) n ) 
     \(d, IdentifierDetails{ identType }, _) -> do
       addDeclaration d
-      case identType of
-        Just t -> do
-          hieType <- lookupType t
-          let names = typeToNames hieType
-          traverse_ (traverse_ (addDependency d) . nameToDeclaration) names
-        Nothing -> pure ()
+      when unusedTypes $
+        case identType of
+          Just t -> do
+            hieType <- lookupType t
+            let names = typeToNames hieType
+            traverse_ (traverse_ (addDependency d) . nameToDeclaration) names
+          Nothing -> pure ()
 
 
 topLevelAnalysis :: ( MonadState Analysis m, MonadReader AnalysisInfo m ) => HieAST TypeIndex -> m ()
 topLevelAnalysis n@Node{ nodeChildren } = do
+  Config{ unusedTypes } <- asks weederConfig
   analysed <-
     runMaybeT
-      ( msum
+      ( msum $
           [
             analyseStandaloneDeriving n
           , analyseInstanceDeclaration n
@@ -383,10 +386,11 @@ topLevelAnalysis n@Node{ nodeChildren } = do
           , analyseClassDeclaration n
           , analyseDataDeclaration n
           , analysePatternSynonyms n
-          , analyseTypeSynonym n
+          ] ++ if unusedTypes then
+          [ analyseTypeSynonym n
           , analyseFamilyDeclaration n
           , analyseFamilyInstance n
-          ]
+          ] else []
       )
 
   case analysed of
@@ -464,13 +468,16 @@ analyseDataDeclaration :: ( Alternative m, MonadState Analysis m, MonadReader An
 analyseDataDeclaration n@Node{ sourcedNodeInfo } = do
   guard $ any (Set.member ("DataDecl", "TyClDecl") . Set.map unNodeAnnotation . nodeAnnotations) $ getSourcedNodeInfo sourcedNodeInfo
 
+  Config{ unusedTypes } <- asks weederConfig
+
   for_
     ( foldMap
         ( First . Just )
         ( findIdentifiers ( any isDataDec ) n )
     )
     \dataTypeName -> do
-      define dataTypeName (nodeSpan n)
+      when unusedTypes $
+        define dataTypeName (nodeSpan n)
 
       for_ ( constructors n ) \constructor ->
         for_ ( foldMap ( First . Just ) ( findIdentifiers ( any isConDec ) constructor ) ) \conDec -> do

@@ -1,3 +1,5 @@
 roots = [ "Spec.TypeFamilies.TypeFamilyUsage.root" ]
 
 type-class-roots = false
+
+unused-types = true

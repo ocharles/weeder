@@ -29,6 +29,9 @@ data Config = Config
   , rootInstances :: Set String
     -- ^ All instances with types matching these regular expressions will 
     -- be added to the root set.
+  , unusedTypes :: Bool
+    -- ^ Toggle to look for and output unused types. Type family instances will
+    -- be marked as implicit roots.
   }
 
 instance TOML.DecodeTOML Config where
@@ -37,5 +40,6 @@ instance TOML.DecodeTOML Config where
     typeClassRoots <- TOML.getField "type-class-roots"
     rootClasses <- TOML.getFieldOr mempty "root-classes"
     rootInstances <- TOML.getFieldOr mempty "root-instances"
+    unusedTypes <- TOML.getFieldOr False "unused-types"
 
     return Config{..}

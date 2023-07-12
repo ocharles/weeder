@@ -1,3 +1,5 @@
 roots = []
 
 type-class-roots = false
+
+unused-types = true

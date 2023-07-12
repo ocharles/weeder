@@ -5,3 +5,5 @@ roots = [ "Spec.Types.Usages.numberUsage"
         ]
 
 type-class-roots = false
+
+unused-types = true
