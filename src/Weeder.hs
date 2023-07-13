@@ -62,7 +62,7 @@ import GHC.Types.FieldLabel ( FieldLabel( FieldLabel, flSelector ) )
 import GHC.Iface.Ext.Types
   ( BindType( RegularBind )
   , ContextInfo( Decl, ValBind, PatternBind, Use, TyDecl, ClassTyDecl, EvidenceVarBind, RecField )
-  , DeclType( DataDec, ClassDec, ConDec )
+  , DeclType( DataDec, ClassDec, ConDec, SynDec, FamDec )
   , EvVarSource ( EvInstBind, cls )
   , HieAST( Node, nodeChildren, nodeSpan, sourcedNodeInfo )
   , HieASTs( HieASTs, getAsts )
@@ -383,6 +383,9 @@ topLevelAnalysis n@Node{ nodeChildren } = do
           , analyseClassDeclaration n
           , analyseDataDeclaration n
           , analysePatternSynonyms n
+          , analyseTypeSynonym n
+          , analyseFamilyDeclaration n
+          , analyseFamilyInstance n
           ]
       )
 
@@ -544,6 +547,47 @@ analyseStandaloneDeriving n@Node{ nodeSpan, sourcedNodeInfo } = do
     case identType ids of
       Just t -> for_ cs (addInstanceRoot d t)
       Nothing -> pure ()
+
+
+analyseTypeSynonym :: ( Alternative m, MonadState Analysis m ) => HieAST a -> m ()
+analyseTypeSynonym n@Node{ nodeSpan, sourcedNodeInfo } = do
+  guard $ any (Set.member ("SynDecl", "TyClDecl") . Set.map unNodeAnnotation . nodeAnnotations) $ getSourcedNodeInfo sourcedNodeInfo
+
+  for_ ( findIdentifiers isTypeSynonym n ) $ \d -> do
+    define d nodeSpan
+
+    for_ (uses n) (addDependency d)
+
+  where
+
+    isTypeSynonym =
+      any \case
+        Decl SynDec _ -> True
+        _             -> False
+
+
+analyseFamilyDeclaration :: ( Alternative m, MonadState Analysis m ) => HieAST a -> m ()
+analyseFamilyDeclaration n@Node{ nodeSpan, sourcedNodeInfo } = do
+  guard $ any (Set.member ("FamDecl", "TyClDecl") . Set.map unNodeAnnotation . nodeAnnotations) $ getSourcedNodeInfo sourcedNodeInfo
+
+  for_ ( findIdentifiers isFamDec n ) $ \d -> do
+    define d nodeSpan
+
+    for_ (uses n) (addDependency d)
+
+  where
+
+    isFamDec =
+      any \case
+        Decl FamDec _ -> True
+        _             -> False
+
+
+analyseFamilyInstance :: ( Alternative m, MonadState Analysis m ) => HieAST a -> m ()
+analyseFamilyInstance n@Node{ sourcedNodeInfo } = do
+  guard $ any (Set.member ("TyFamInstD", "InstDecl") . Set.map unNodeAnnotation . nodeAnnotations) $ getSourcedNodeInfo sourcedNodeInfo
+
+  for_ ( uses n ) addImplicitRoot
 
 
 analysePatternSynonyms :: ( Alternative m, MonadState Analysis m ) => HieAST a -> m ()
