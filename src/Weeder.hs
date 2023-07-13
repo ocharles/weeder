@@ -404,10 +404,15 @@ topLevelAnalysis n@Node{ nodeChildren } = do
       return ()
 
 
+annsContain :: HieAST a -> (String, String) -> Bool
+annsContain Node{ sourcedNodeInfo } ann =
+  any (Set.member ann . Set.map unNodeAnnotation . nodeAnnotations) $ getSourcedNodeInfo sourcedNodeInfo
+
+
 analyseBinding :: ( Alternative m, MonadState Analysis m, MonadReader AnalysisInfo m ) => HieAST a -> m ()
-analyseBinding n@Node{ nodeSpan, sourcedNodeInfo } = do
+analyseBinding n@Node{ nodeSpan } = do
   let bindAnns = Set.fromList [("FunBind", "HsBindLR"), ("PatBind", "HsBindLR")]
-  guard $ any (not . Set.disjoint bindAnns . Set.map unNodeAnnotation . nodeAnnotations) $ getSourcedNodeInfo sourcedNodeInfo
+  guard $ any (annsContain n) bindAnns
 
   for_ ( findDeclarations n ) \d -> do
     define d nodeSpan
@@ -418,15 +423,15 @@ analyseBinding n@Node{ nodeSpan, sourcedNodeInfo } = do
 
 
 analyseRewriteRule :: ( Alternative m, MonadState Analysis m ) => HieAST a -> m ()
-analyseRewriteRule n@Node{ sourcedNodeInfo } = do
-  guard $ any (Set.member ("HsRule", "RuleDecl") . Set.map unNodeAnnotation . nodeAnnotations) $ getSourcedNodeInfo sourcedNodeInfo
+analyseRewriteRule n = do
+  guard $ annsContain n ("HsRule", "RuleDecl")
 
   for_ ( uses n ) addImplicitRoot
 
 
 analyseInstanceDeclaration :: ( Alternative m, MonadState Analysis m, MonadReader AnalysisInfo m ) => HieAST TypeIndex -> m ()
-analyseInstanceDeclaration n@Node{ nodeSpan, sourcedNodeInfo } = do
-  guard $ any (Set.member ("ClsInstD", "InstDecl") . Set.map unNodeAnnotation . nodeAnnotations) $ getSourcedNodeInfo sourcedNodeInfo
+analyseInstanceDeclaration n@Node{ nodeSpan } = do
+  guard $ annsContain n ("ClsInstD", "InstDecl")
 
   for_ ( findEvInstBinds n ) \(d, cs, ids, _) -> do
     -- This makes instance declarations show up in 
@@ -443,8 +448,8 @@ analyseInstanceDeclaration n@Node{ nodeSpan, sourcedNodeInfo } = do
 
 
 analyseClassDeclaration :: ( Alternative m, MonadState Analysis m, MonadReader AnalysisInfo m ) => HieAST a -> m ()
-analyseClassDeclaration n@Node{ nodeSpan, sourcedNodeInfo } = do
-  guard $ any (Set.member ("ClassDecl", "TyClDecl") . Set.map unNodeAnnotation . nodeAnnotations) $ getSourcedNodeInfo sourcedNodeInfo
+analyseClassDeclaration n@Node{ nodeSpan } = do
+  guard $ annsContain n ("ClassDecl", "TyClDecl")
 
   for_ ( findIdentifiers isClassDeclaration n ) $ \d -> do
     define d nodeSpan
@@ -465,8 +470,8 @@ analyseClassDeclaration n@Node{ nodeSpan, sourcedNodeInfo } = do
 
 
 analyseDataDeclaration :: ( Alternative m, MonadState Analysis m, MonadReader AnalysisInfo m ) => HieAST TypeIndex -> m ()
-analyseDataDeclaration n@Node{ sourcedNodeInfo } = do
-  guard $ any (Set.member ("DataDecl", "TyClDecl") . Set.map unNodeAnnotation . nodeAnnotations) $ getSourcedNodeInfo sourcedNodeInfo
+analyseDataDeclaration n = do
+  guard $ annsContain n ("DataDecl", "TyClDecl")
 
   Config{ unusedTypes } <- asks weederConfig
 
@@ -541,8 +546,8 @@ findNodeTypes t n@Node{ nodeChildren, sourcedNodeInfo } =
 
 
 analyseStandaloneDeriving :: ( Alternative m, MonadState Analysis m, MonadReader AnalysisInfo m ) => HieAST TypeIndex -> m ()
-analyseStandaloneDeriving n@Node{ nodeSpan, sourcedNodeInfo } = do
-  guard $ any (Set.member ("DerivDecl", "DerivDecl") . Set.map unNodeAnnotation . nodeAnnotations) $ getSourcedNodeInfo sourcedNodeInfo
+analyseStandaloneDeriving n@Node{ nodeSpan } = do
+  guard $ annsContain n ("DerivDecl", "DerivDecl")
 
   for_ (findEvInstBinds n) \(d, cs, ids, _) -> do
     define d nodeSpan
@@ -557,8 +562,8 @@ analyseStandaloneDeriving n@Node{ nodeSpan, sourcedNodeInfo } = do
 
 
 analyseTypeSynonym :: ( Alternative m, MonadState Analysis m ) => HieAST a -> m ()
-analyseTypeSynonym n@Node{ nodeSpan, sourcedNodeInfo } = do
-  guard $ any (Set.member ("SynDecl", "TyClDecl") . Set.map unNodeAnnotation . nodeAnnotations) $ getSourcedNodeInfo sourcedNodeInfo
+analyseTypeSynonym n@Node{ nodeSpan } = do
+  guard $ annsContain n ("SynDecl", "TyClDecl")
 
   for_ ( findIdentifiers isTypeSynonym n ) $ \d -> do
     define d nodeSpan
@@ -574,8 +579,8 @@ analyseTypeSynonym n@Node{ nodeSpan, sourcedNodeInfo } = do
 
 
 analyseFamilyDeclaration :: ( Alternative m, MonadState Analysis m ) => HieAST a -> m ()
-analyseFamilyDeclaration n@Node{ nodeSpan, sourcedNodeInfo } = do
-  guard $ any (Set.member ("FamDecl", "TyClDecl") . Set.map unNodeAnnotation . nodeAnnotations) $ getSourcedNodeInfo sourcedNodeInfo
+analyseFamilyDeclaration n@Node{ nodeSpan } = do
+  guard $ annsContain n ("FamDecl", "TyClDecl")
 
   for_ ( findIdentifiers isFamDec n ) $ \d -> do
     define d nodeSpan
@@ -591,15 +596,15 @@ analyseFamilyDeclaration n@Node{ nodeSpan, sourcedNodeInfo } = do
 
 
 analyseFamilyInstance :: ( Alternative m, MonadState Analysis m ) => HieAST a -> m ()
-analyseFamilyInstance n@Node{ sourcedNodeInfo } = do
-  guard $ any (Set.member ("TyFamInstD", "InstDecl") . Set.map unNodeAnnotation . nodeAnnotations) $ getSourcedNodeInfo sourcedNodeInfo
+analyseFamilyInstance n = do
+  guard $ annsContain n ("TyFamInstD", "InstDecl")
 
   for_ ( uses n ) addImplicitRoot
 
 
 analysePatternSynonyms :: ( Alternative m, MonadState Analysis m ) => HieAST a -> m ()
-analysePatternSynonyms n@Node{ sourcedNodeInfo } = do
-  guard $ any (Set.member ("PatSynBind", "HsBindLR") . Set.map unNodeAnnotation . nodeAnnotations) $ getSourcedNodeInfo sourcedNodeInfo
+analysePatternSynonyms n = do
+  guard $ annsContain n ("PatSynBind", "HsBindLR")
 
   for_ ( findDeclarations n ) $ for_ ( uses n ) . addDependency
 
