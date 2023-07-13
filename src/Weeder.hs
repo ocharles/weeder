@@ -309,8 +309,8 @@ analyseExport m = \case
     for_ ( nameToDeclaration name ) addExport
 
     for_ pieces \case
-      NormalGreName name ->
-        traverse_ addExport $ nameToDeclaration name
+      NormalGreName name' ->
+        traverse_ addExport $ nameToDeclaration name'
 
       FieldGreName (FieldLabel{ flSelector }) ->
         traverse_ addExport $ nameToDeclaration flSelector
