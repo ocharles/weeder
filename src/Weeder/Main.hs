@@ -20,6 +20,7 @@ import System.IO ( stderr, hPutStrLn )
 
 -- containers
 import qualified Data.Map.Strict as Map
+import Data.Set ( Set )
 import qualified Data.Set as Set
 
 -- text
@@ -64,13 +65,13 @@ main = do
     execParser $
       info (optsP <**> helper <**> versionP) mempty
 
-  configExists <- 
+  configExists <-
     doesFileExist (T.unpack configExpr)
 
-  weederConfig <- 
+  weederConfig <-
     if configExists
       then TOML.decodeFile (T.unpack configExpr) >>= either throwIO pure
-      else do 
+      else do
         hPutStrLn stderr $ "Using default config: did not find config at " ++ T.unpack configExpr
         pure defaultConfig
 
@@ -164,7 +165,7 @@ mainWithConfig hieExt hieDirectories requireHsFiles weederConfig@Config{ rootPat
     reachableSet =
       reachable
         analysis
-        ( Set.map DeclarationRoot roots <> filterImplicitRoots (prettyPrintedType analysis) ( implicitRoots analysis ) )
+        ( Set.map DeclarationRoot roots <> filterImplicitRoots analysis ( implicitRoots analysis ) )
 
     dead =
       allDeclarations analysis Set.\\ reachableSet
@@ -194,14 +195,25 @@ mainWithConfig hieExt hieDirectories requireHsFiles weederConfig@Config{ rootPat
 
   where
 
-    filterImplicitRoots printedTypeMap = Set.filter $ \case
-      DeclarationRoot _ -> True -- keep implicit roots for rewrite rules
+    filterImplicitRoots :: Analysis -> Set Root -> Set Root
+    filterImplicitRoots Analysis{ prettyPrintedType, modulePaths } = Set.filter $ \case
+      DeclarationRoot _ -> True -- keep implicit roots for rewrite rules etc
+
       ModuleRoot _ -> True
-      InstanceRoot d c -> typeClassRoots || any (occNameString c =~) rootClasses || matchingType
+
+      InstanceRoot d c -> typeClassRoots || matchingClass || matchingType
         where
-          matchingType = case Map.lookup d printedTypeMap of
-            Just t -> any (t =~) rootInstances
+          matchingClass = any (occNameString c =~) (filterOnModule rootClasses)
+
+          matchingType = case Map.lookup d prettyPrintedType of
+            Just t -> any (t =~) (filterOnModule rootInstances)
             Nothing -> False
+
+          filterOnModule :: Ord a => Set (Maybe String, a) -> Set a
+          filterOnModule = Set.map snd . Set.filter (\(m, _) -> maybe True modulePathMatches m)
+
+          modulePathMatches :: String -> Bool
+          modulePathMatches modulePattern = maybe False (=~ modulePattern) (Map.lookup ( declModule d ) modulePaths)
 
 
 showWeed :: FilePath -> RealSrcLoc -> Declaration -> String

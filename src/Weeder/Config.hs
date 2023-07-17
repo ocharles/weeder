@@ -35,12 +35,12 @@ data Config = Config
     -- ^ If True, consider all declarations in a type class as part of the root
     -- set. Weeder is currently unable to identify whether or not a type class
     -- instance is used - enabling this option can prevent false positives.
-  , rootClasses :: Set String
+  , rootClasses :: Set (Maybe String, String)
     -- ^ All instances of type classes matching these regular expressions will
     -- be added to the root set. Note that this does not mark the class itself
     -- as a root, so if the class has no instances then it will not be made
     -- reachable.
-  , rootInstances :: Set String
+  , rootInstances :: Set (Maybe String, String)
     -- ^ All instances with types matching these regular expressions will 
     -- be added to the root set.
   } deriving Eq
@@ -82,8 +82,8 @@ prop_configToToml =
   let cf = Config
         { rootPatterns = mempty
         , typeClassRoots = True
-        , rootClasses = Set.fromList ["baz", "quux"]
-        , rootInstances = Set.fromList ["quux\\\\[\\]", "[quuux]"]
+        , rootClasses = Set.fromList [(Nothing, "baz"), (Just "Foo\\\\.Bar", "quux")]
+        , rootInstances = Set.fromList [(Nothing, "quux\\\\[\\]"), (Just "Baz", "[quuux]")]
         }
       cf' = T.pack $ configToToml cf
    in TOML.decode cf' == Right cf
