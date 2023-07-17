@@ -2,6 +2,8 @@
 {-# language BlockArguments #-}
 {-# language OverloadedStrings #-}
 {-# language RecordWildCards #-}
+{-# language ScopedTypeVariables #-}
+{-# language TupleSections #-}
 
 module Weeder.Config 
   ( Config(..)
@@ -12,8 +14,9 @@ module Weeder.Config
    where
 
 -- base
+import Control.Applicative ((<|>))
 import Data.Char (toLower)
-import Data.List (intersperse)
+import Data.List (intersperse, intercalate)
 
 -- containers
 import Data.Set ( Set )
@@ -21,6 +24,7 @@ import qualified Data.Set as Set
 
 -- text
 import qualified Data.Text as T
+import Data.Text (Text)
 
 -- toml-reader
 import qualified TOML
@@ -59,10 +63,41 @@ instance TOML.DecodeTOML Config where
   tomlDecoder = do
     rootPatterns <- TOML.getFieldOr (rootPatterns defaultConfig) "roots"
     typeClassRoots <- TOML.getFieldOr (typeClassRoots defaultConfig) "type-class-roots"
-    rootClasses <- TOML.getFieldOr (rootClasses defaultConfig) "root-classes"
-    rootInstances <- TOML.getFieldOr (rootInstances defaultConfig) "root-instances"
+    rootClasses <- maybe (rootClasses defaultConfig) Set.fromList <$> 
+      TOML.getFieldOptWith (TOML.getArrayOf $ decodeOptionalTable "module" "class") "root-classes" 
+    rootInstances <- maybe (rootInstances defaultConfig) Set.fromList <$>
+      TOML.getFieldOptWith (TOML.getArrayOf $ decodeOptionalTable "module" "instance") "root-instances" 
 
-    return Config{..}
+    pure Config{..}
+
+
+-- | Decoder for a value of any of the forms:
+--
+-- @{<optional> = a, <required> = b} -> (Just a, b)@
+--
+-- @{<required> = b} -> (Nothing, b)@
+--
+-- @b -> (Nothing, b)@
+decodeOptionalTable :: forall a b. (TOML.DecodeTOML a, TOML.DecodeTOML b) 
+  => Text -- ^ Optional field name
+  -> Text -- ^ Required field name
+  -> TOML.Decoder (Maybe a, b)
+decodeOptionalTable optional required = decodeTable <|> fmap (Nothing,) TOML.tomlDecoder
+  
+  where
+
+    decodeTable :: TOML.Decoder (Maybe a, b)
+    decodeTable = do
+      m <- TOML.getFieldOpt optional
+      n <- TOML.getField required
+      pure (m, n)
+
+
+showOptionalTable :: (Show a, Show b) => Text -> Text -> (Maybe a, b) -> String
+showOptionalTable optional required (m, n) = 
+  case m of
+    Nothing -> show n
+    Just m' -> "{" ++ T.unpack optional ++ " = " ++ show m' ++ ", " ++ T.unpack required ++ " = " ++ show n ++ "}"
 
 
 configToToml :: Config -> String
@@ -70,9 +105,12 @@ configToToml Config{..}
   = unlines . intersperse mempty $
       [ "roots = " ++ show (Set.toList rootPatterns)
       , "type-class-roots = " ++ map toLower (show typeClassRoots)
-      , "root-classes = " ++ show (Set.toList rootClasses)
-      , "root-instances = " ++ show (Set.toList rootInstances)
+      , "root-classes = " ++ "[" ++ intercalate "," (map (showOptionalTable "module" "class") rootClasses') ++ "]"
+      , "root-instances = " ++ "[" ++ intercalate "," (map (showOptionalTable "module" "instance") rootInstances') ++ "]"
       ]
+  where
+    rootClasses' = Set.toList rootClasses
+    rootInstances' = Set.toList rootInstances
 
 
 -- | >>> prop_configToToml
