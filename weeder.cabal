@@ -90,6 +90,8 @@ test-suite weeder-test
     -- Tests
     Spec.ApplicativeDo.ApplicativeDo
     Spec.BasicExample.BasicExample
+    Spec.ConfigInstanceModules.Module1
+    Spec.ConfigInstanceModules.Module2
     Spec.DeriveGeneric.DeriveGeneric
     Spec.InstanceRootConstraint.InstanceRootConstraint
     Spec.InstanceTypeclass.InstanceTypeclass
