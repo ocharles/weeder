@@ -11,11 +11,12 @@ module Weeder.Main ( main, mainWithConfig ) where
 
 -- base
 import Control.Exception ( throwIO )
-import Control.Monad ( guard )
+import Control.Monad ( guard, unless )
 import Data.Foldable
 import Data.List ( isSuffixOf, sortOn )
 import Data.Version ( showVersion )
 import System.Exit ( exitFailure, ExitCode(..), exitWith )
+import System.IO ( stderr, hPutStrLn )
 
 -- containers
 import qualified Data.Map.Strict as Map
@@ -59,18 +60,29 @@ import Paths_weeder (version)
 -- | Parse command line arguments and into a 'Config' and run 'mainWithConfig'.
 main :: IO ()
 main = do
-  (configExpr, hieExt, hieDirectories, requireHsFiles) <-
+  (configExpr, hieExt, hieDirectories, requireHsFiles, writeDefaultConfig) <-
     execParser $
       info (optsP <**> helper <**> versionP) mempty
 
-  (exitCode, _) <- 
-    TOML.decodeFile (T.unpack configExpr)
-      >>= either throwIO pure
-      >>= mainWithConfig hieExt hieDirectories requireHsFiles
-  
+  configExists <- 
+    doesFileExist (T.unpack configExpr)
+
+  weederConfig <- 
+    if configExists
+      then TOML.decodeFile (T.unpack configExpr) >>= either throwIO pure
+      else do 
+        hPutStrLn stderr $ "Using default config: did not find config at " ++ T.unpack configExpr
+        pure defaultConfig
+
+  unless (writeDefaultConfig ==> configExists) $
+    writeFile (T.unpack configExpr) (configToToml defaultConfig)
+
+  (exitCode, _) <-
+    mainWithConfig hieExt hieDirectories requireHsFiles weederConfig
+
   exitWith exitCode
   where
-    optsP = (,,,)
+    optsP = (,,,,)
         <$> strOption
             ( long "config"
                 <> help "A file path for Weeder's configuration."
@@ -93,6 +105,10 @@ main = do
         <*> switch
               ( long "require-hs-files"
                   <> help "Skip stale .hie files with no matching .hs modules"
+              )
+        <*> switch
+              ( long "write-default-config"
+                  <> help "Write a default configuration file if the one specified by --config does not exist"
               )
 
     versionP = infoOption ( "weeder version "
@@ -186,11 +202,11 @@ mainWithConfig hieExt hieDirectories requireHsFiles weederConfig@Config{ rootPat
           matchingType = case Map.lookup d printedTypeMap of
             Just t -> any (t =~) rootInstances
             Nothing -> False
-      
+
 
 showWeed :: FilePath -> RealSrcLoc -> Declaration -> String
 showWeed path start d =
-  showPath path start 
+  showPath path start
     <> occNameString ( declOccName d)
 
 

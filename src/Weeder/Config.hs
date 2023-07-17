@@ -3,10 +3,24 @@
 {-# language OverloadedStrings #-}
 {-# language RecordWildCards #-}
 
-module Weeder.Config ( Config(..) ) where
+module Weeder.Config 
+  ( Config(..)
+  , configToToml
+  , prop_configToToml
+  , defaultConfig 
+  ) 
+   where
+
+-- base
+import Data.Char (toLower)
+import Data.List (intersperse)
 
 -- containers
 import Data.Set ( Set )
+import qualified Data.Set as Set
+
+-- text
+import qualified Data.Text as T
 
 -- toml-reader
 import qualified TOML
@@ -29,13 +43,47 @@ data Config = Config
   , rootInstances :: Set String
     -- ^ All instances with types matching these regular expressions will 
     -- be added to the root set.
+  } deriving Eq
+
+
+defaultConfig :: Config
+defaultConfig = Config
+  { rootPatterns = Set.fromList [ "Main.main", "^Paths_.*"]
+  , typeClassRoots = False
+  , rootClasses = mempty
+  , rootInstances = mempty
   }
+
 
 instance TOML.DecodeTOML Config where
   tomlDecoder = do
-    rootPatterns <- TOML.getField "roots"
-    typeClassRoots <- TOML.getField "type-class-roots"
-    rootClasses <- TOML.getFieldOr mempty "root-classes"
-    rootInstances <- TOML.getFieldOr mempty "root-instances"
+    rootPatterns <- TOML.getFieldOr (rootPatterns defaultConfig) "roots"
+    typeClassRoots <- TOML.getFieldOr (typeClassRoots defaultConfig) "type-class-roots"
+    rootClasses <- TOML.getFieldOr (rootClasses defaultConfig) "root-classes"
+    rootInstances <- TOML.getFieldOr (rootInstances defaultConfig) "root-instances"
 
     return Config{..}
+
+
+configToToml :: Config -> String
+configToToml Config{..}
+  = unlines . intersperse mempty $
+      [ "roots = " ++ show (Set.toList rootPatterns)
+      , "type-class-roots = " ++ map toLower (show typeClassRoots)
+      , "root-classes = " ++ show (Set.toList rootClasses)
+      , "root-instances = " ++ show (Set.toList rootInstances)
+      ]
+
+
+-- | >>> prop_configToToml
+-- True
+prop_configToToml :: Bool
+prop_configToToml =
+  let cf = Config
+        { rootPatterns = mempty
+        , typeClassRoots = True
+        , rootClasses = Set.fromList ["baz", "quux"]
+        , rootInstances = Set.fromList ["quux\\\\[\\]", "[quuux]"]
+        }
+      cf' = T.pack $ configToToml cf
+   in TOML.decode cf' == Right cf
