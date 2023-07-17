@@ -1,3 +1,4 @@
+import qualified Weeder.Config
 import qualified Weeder.Main
 import qualified Weeder
 import qualified TOML
@@ -28,6 +29,9 @@ main = do
       describe "Weeder.Main" $
         describe "mainWithConfig" $
           zipWithM_ (uncurry integrationTestSpec) testOutputFiles hieDirectories
+      describe "Weeder.Config" $
+        describe "configToToml" $
+          it "passes the unit test prop_configToToml" Weeder.Config.prop_configToToml
   where
     -- Draw a dotfile via graphviz
     drawDot f = callCommand $ "dot -Tpng " ++ f ++ " -o " ++ (f -<.> ".png")
