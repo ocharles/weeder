@@ -56,7 +56,7 @@ defaultConfig :: Config
 defaultConfig = Config
   { rootPatterns = Set.fromList [ "Main.main", "^Paths_.*"]
   , typeClassRoots = False
-  , rootClasses = mempty
+  , rootClasses = Set.fromList [ (Just "IsString", Nothing), (Just "IsList", Nothing) ]
   , rootInstances = mempty
   }
 
