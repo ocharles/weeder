@@ -203,14 +203,14 @@ mainWithConfig hieExt hieDirectories requireHsFiles weederConfig@Config{ rootPat
 
       InstanceRoot d c -> typeClassRoots || matchingClass || matchingType
         where
-          matchingClass = any (occNameString c =~) (filterOnModule rootClasses)
+          matchingClass = any (maybe True (occNameString c =~)) (filterOnModule rootClasses)
 
           matchingType = case Map.lookup d prettyPrintedType of
-            Just t -> any (t =~) (filterOnModule rootInstances)
+            Just t -> any (maybe True (t =~)) (filterOnModule rootInstances)
             Nothing -> False
 
-          filterOnModule :: Ord a => Set (Maybe String, a) -> Set a
-          filterOnModule = Set.map snd . Set.filter (\(m, _) -> maybe True modulePathMatches m)
+          filterOnModule :: Ord a => Set (a, Maybe String) -> Set a
+          filterOnModule = Set.map fst . Set.filter (\(_, m) -> maybe True modulePathMatches m)
 
           modulePathMatches :: String -> Bool
           modulePathMatches modulePattern = maybe False (=~ modulePattern) (Map.lookup ( declModule d ) modulePaths)

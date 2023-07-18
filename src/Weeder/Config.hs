@@ -2,8 +2,8 @@
 {-# language BlockArguments #-}
 {-# language OverloadedStrings #-}
 {-# language RecordWildCards #-}
-{-# language ScopedTypeVariables #-}
 {-# language TupleSections #-}
+{-# LANGUAGE LambdaCase #-}
 
 module Weeder.Config 
   ( Config(..)
@@ -39,14 +39,16 @@ data Config = Config
     -- ^ If True, consider all declarations in a type class as part of the root
     -- set. Weeder is currently unable to identify whether or not a type class
     -- instance is used - enabling this option can prevent false positives.
-  , rootClasses :: Set (Maybe String, String)
+  , rootClasses :: Set (Maybe String, Maybe String)
     -- ^ All instances of type classes matching these regular expressions will
     -- be added to the root set. Note that this does not mark the class itself
     -- as a root, so if the class has no instances then it will not be made
-    -- reachable.
-  , rootInstances :: Set (Maybe String, String)
+    -- reachable. Specified as a pair (class, module) and a Nothing value
+    -- always matches.
+  , rootInstances :: Set (Maybe String, Maybe String)
     -- ^ All instances with types matching these regular expressions will 
-    -- be added to the root set.
+    -- be added to the root set. Specified as a pair (instance, module) and
+    -- a Nothing value always matches.
   } deriving Eq
 
 
@@ -64,40 +66,39 @@ instance TOML.DecodeTOML Config where
     rootPatterns <- TOML.getFieldOr (rootPatterns defaultConfig) "roots"
     typeClassRoots <- TOML.getFieldOr (typeClassRoots defaultConfig) "type-class-roots"
     rootClasses <- maybe (rootClasses defaultConfig) Set.fromList <$> 
-      TOML.getFieldOptWith (TOML.getArrayOf $ decodeOptionalTable "module" "class") "root-classes" 
+      TOML.getFieldOptWith (TOML.getArrayOf $ decodeOptionalTable "class" "module") "root-classes" 
     rootInstances <- maybe (rootInstances defaultConfig) Set.fromList <$>
-      TOML.getFieldOptWith (TOML.getArrayOf $ decodeOptionalTable "module" "instance") "root-instances" 
+      TOML.getFieldOptWith (TOML.getArrayOf $ decodeOptionalTable "instance" "module") "root-instances" 
 
     pure Config{..}
 
 
 -- | Decoder for a value of any of the forms:
 --
--- @{<optional> = a, <required> = b} -> (Just a, b)@
+-- @{<primary> = a, <secondary> = b} -> (Just a, Just b)@
 --
--- @{<required> = b} -> (Nothing, b)@
+-- @{<primary> = a} -> (Just a, Nothing)@
 --
--- @b -> (Nothing, b)@
-decodeOptionalTable :: forall a b. (TOML.DecodeTOML a, TOML.DecodeTOML b) 
-  => Text -- ^ Optional field name
-  -> Text -- ^ Required field name
-  -> TOML.Decoder (Maybe a, b)
-decodeOptionalTable optional required = decodeTable <|> fmap (Nothing,) TOML.tomlDecoder
+-- @{<secondary> = b} -> (Nothing, Just b)@
+--
+-- @a -> (Just a, Nothing)@
+--
+-- @{} -> (Nothing, Nothing)@
+decodeOptionalTable :: (TOML.DecodeTOML a, TOML.DecodeTOML b) 
+  => Text -- ^ Primary field name
+  -> Text -- ^ Secondary field name
+  -> TOML.Decoder (Maybe a, Maybe b)
+decodeOptionalTable primary secondary = 
+  ((,) <$> TOML.getFieldOpt primary <*> TOML.getFieldOpt secondary) 
+    <|> fmap (,Nothing) TOML.tomlDecoder
   
-  where
 
-    decodeTable :: TOML.Decoder (Maybe a, b)
-    decodeTable = do
-      m <- TOML.getFieldOpt optional
-      n <- TOML.getField required
-      pure (m, n)
-
-
-showOptionalTable :: (Show a, Show b) => Text -> Text -> (Maybe a, b) -> String
-showOptionalTable optional required (m, n) = 
-  case m of
-    Nothing -> show n
-    Just m' -> "{" ++ T.unpack optional ++ " = " ++ show m' ++ ", " ++ T.unpack required ++ " = " ++ show n ++ "}"
+showOptionalTable :: (Show a, Show b) => Text -> Text -> (Maybe a, Maybe b) -> String
+showOptionalTable primary secondary = \case
+    (Just a, Nothing) -> show a
+    (Nothing, Just b) -> "{" ++ T.unpack secondary ++ " = " ++ show b ++ "}"
+    (Just a, Just b) -> "{" ++ T.unpack primary ++ " = " ++ show a ++ ", " ++ T.unpack secondary ++ " = " ++ show b ++ "}"
+    (Nothing, Nothing) -> "{}"
 
 
 configToToml :: Config -> String
@@ -105,8 +106,8 @@ configToToml Config{..}
   = unlines . intersperse mempty $
       [ "roots = " ++ show (Set.toList rootPatterns)
       , "type-class-roots = " ++ map toLower (show typeClassRoots)
-      , "root-classes = " ++ "[" ++ intercalate "," (map (showOptionalTable "module" "class") rootClasses') ++ "]"
-      , "root-instances = " ++ "[" ++ intercalate "," (map (showOptionalTable "module" "instance") rootInstances') ++ "]"
+      , "root-classes = " ++ "[" ++ intercalate "," (map (showOptionalTable "class" "module") rootClasses') ++ "]"
+      , "root-instances = " ++ "[" ++ intercalate "," (map (showOptionalTable "instance" "module") rootInstances') ++ "]"
       ]
   where
     rootClasses' = Set.toList rootClasses
@@ -120,8 +121,8 @@ prop_configToToml =
   let cf = Config
         { rootPatterns = mempty
         , typeClassRoots = True
-        , rootClasses = Set.fromList [(Nothing, "baz"), (Just "Foo\\\\.Bar", "quux")]
-        , rootInstances = Set.fromList [(Nothing, "quux\\\\[\\]"), (Just "Baz", "[quuux]")]
+        , rootClasses = Set.fromList [(Nothing, Just "Baz"), (Just "foo\\\\[bar]", Just "Bar\\\\.foo"), (Nothing, Nothing)]
+        , rootInstances = Set.fromList [(Nothing, Just "Quux\\\\[\\]"), (Just "[\\[\\\\[baz", Just "[Quuux]"), (Just "a", Nothing)]
         }
       cf' = T.pack $ configToToml cf
    in TOML.decode cf' == Right cf

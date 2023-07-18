@@ -92,6 +92,7 @@ test-suite weeder-test
     Spec.BasicExample.BasicExample
     Spec.ConfigInstanceModules.Module1
     Spec.ConfigInstanceModules.Module2
+    Spec.ConfigInstanceModules.Module3
     Spec.DeriveGeneric.DeriveGeneric
     Spec.InstanceRootConstraint.InstanceRootConstraint
     Spec.InstanceTypeclass.InstanceTypeclass
