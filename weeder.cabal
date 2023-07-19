@@ -71,6 +71,7 @@ test-suite weeder-test
     , aeson
     , algebraic-graphs
     , base
+    , containers
     , directory
     , filepath
     , ghc
@@ -81,12 +82,13 @@ test-suite weeder-test
     , toml-reader
     , weeder
   type: exitcode-stdio-1.0
-  main-is: Spec.hs
+  main-is: Main.hs
   hs-source-dirs: test
   autogen-modules:
     Paths_weeder
   other-modules:
     Paths_weeder
+    Spec
     -- Tests
     Spec.ApplicativeDo.ApplicativeDo
     Spec.BasicExample.BasicExample
@@ -105,5 +107,6 @@ test-suite weeder-test
     Spec.RangeEnum.RangeEnum
     Spec.RootClasses.RootClasses
     Spec.StandaloneDeriving.StandaloneDeriving
+    Weeder.ConfigSpec
   ghc-options: -Wall -fwarn-incomplete-uni-patterns -fwrite-ide-info -hiedir ./test
   default-language: Haskell2010

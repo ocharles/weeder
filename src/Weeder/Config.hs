@@ -3,12 +3,11 @@
 {-# language OverloadedStrings #-}
 {-# language RecordWildCards #-}
 {-# language TupleSections #-}
-{-# LANGUAGE LambdaCase #-}
+{-# language LambdaCase #-}
 
 module Weeder.Config 
   ( Config(..)
   , configToToml
-  , prop_configToToml
   , defaultConfig 
   ) 
    where
@@ -112,17 +111,3 @@ configToToml Config{..}
   where
     rootClasses' = Set.toList rootClasses
     rootInstances' = Set.toList rootInstances
-
-
--- | >>> prop_configToToml
--- True
-prop_configToToml :: Bool
-prop_configToToml =
-  let cf = Config
-        { rootPatterns = mempty
-        , typeClassRoots = True
-        , rootClasses = Set.fromList [(Nothing, Just "Baz"), (Just "foo\\\\[bar]", Just "Bar\\\\.foo"), (Nothing, Nothing)]
-        , rootInstances = Set.fromList [(Nothing, Just "Quux\\\\[\\]"), (Just "[\\[\\\\[baz", Just "[Quuux]"), (Just "a", Nothing)]
-        }
-      cf' = T.pack $ configToToml cf
-   in TOML.decode cf' == Right cf
