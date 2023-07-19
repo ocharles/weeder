@@ -1,9 +1,11 @@
 {-# OPTIONS_GHC -Wno-missing-signatures #-}
+{-# OPTIONS_GHC -Wno-unused-foralls #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module Spec.Types.Usages where
 
 import Spec.Types.Types
 
-numberUsage :: Number -> Number
+numberUsage :: forall a. Number -> Number
 numberUsage = id
 
 -- should depend on Modulo1
