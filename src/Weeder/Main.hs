@@ -205,11 +205,11 @@ mainWithConfig hieExt hieDirectories requireHsFiles weederConfig@Config{ rootPat
             Just t -> any (maybe True (t =~)) (filterOnModule rootInstances)
             Nothing -> False
 
-          filterOnModule :: Ord a => Set (a, Maybe String) -> Set a
-          filterOnModule = Set.map fst . Set.filter (\(_, m) -> maybe True modulePathMatches m)
+          filterOnModule :: Set PatternWithModule -> Set (Maybe String)
+          filterOnModule = Set.map mainPattern . Set.filter (maybe True modulePathMatches . modulePattern)
 
           modulePathMatches :: String -> Bool
-          modulePathMatches modulePattern = maybe False (=~ modulePattern) (Map.lookup ( declModule d ) modulePaths)
+          modulePathMatches p = maybe False (=~ p) (Map.lookup ( declModule d ) modulePaths)
 
 
 showWeed :: FilePath -> RealSrcLoc -> Declaration -> String

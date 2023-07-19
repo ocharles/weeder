@@ -19,8 +19,8 @@ prop_configToToml =
   let cf = Config
         { rootPatterns = mempty
         , typeClassRoots = True
-        , rootClasses = Set.fromList [(Nothing, Just "Baz"), (Just "foo\\\\[bar]", Just "Bar\\\\.foo"), (Nothing, Nothing)]
-        , rootInstances = Set.fromList [(Nothing, Just "Quux\\\\[\\]"), (Just "[\\[\\\\[baz", Just "[Quuux]"), (Just "a", Nothing)]
+        , rootClasses = Set.fromList [ModuleOnly "Baz", PatternAndModule "foo\\\\[bar]" "Bar\\\\.foo", PatternOnly "b\\"]
+        , rootInstances = Set.fromList [ModuleOnly "Quux\\\\[\\]", PatternAndModule "[\\[\\\\[baz" "[Quuux]", PatternOnly "a"]
         }
       cf' = T.pack $ configToToml cf
    in TOML.decode cf' == Right cf
