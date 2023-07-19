@@ -68,18 +68,14 @@ main = do
   configExists <-
     doesFileExist (T.unpack configExpr)
 
-  weederConfig <-
-    if configExists
-      then TOML.decodeFile (T.unpack configExpr) >>= either throwIO pure
-      else do
-        hPutStrLn stderr $ "Using default config: did not find config at " ++ T.unpack configExpr
-        pure defaultConfig
-
-  unless (writeDefaultConfig ==> configExists) $
+  unless (writeDefaultConfig ==> configExists) do
+    hPutStrLn stderr $ "Did not find config: wrote default config to " ++ T.unpack configExpr
     writeFile (T.unpack configExpr) (configToToml defaultConfig)
 
   (exitCode, _) <-
-    mainWithConfig hieExt hieDirectories requireHsFiles weederConfig
+    TOML.decodeFile (T.unpack configExpr)
+      >>= either throwIO pure
+      >>= mainWithConfig hieExt hieDirectories requireHsFiles
 
   exitWith exitCode
   where
