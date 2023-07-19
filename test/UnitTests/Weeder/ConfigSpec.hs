@@ -1,4 +1,4 @@
-module Weeder.ConfigSpec (spec) where
+module UnitTests.Weeder.ConfigSpec (spec) where
 
 import Weeder.Config
 import qualified Data.Set as Set
