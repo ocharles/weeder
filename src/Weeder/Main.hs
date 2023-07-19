@@ -4,7 +4,7 @@
 {-# language NamedFieldPuns #-}
 {-# language OverloadedStrings #-}
 {-# language LambdaCase #-}
-{-# LANGUAGE RecordWildCards #-}
+{-# language RecordWildCards #-}
 
 -- | This module provides an entry point to the Weeder executable.
 
