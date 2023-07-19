@@ -4,6 +4,7 @@
 {-# language NamedFieldPuns #-}
 {-# language OverloadedStrings #-}
 {-# language LambdaCase #-}
+{-# LANGUAGE RecordWildCards #-}
 
 -- | This module provides an entry point to the Weeder executable.
 
@@ -22,9 +23,6 @@ import System.IO ( stderr, hPutStrLn )
 import qualified Data.Map.Strict as Map
 import Data.Set ( Set )
 import qualified Data.Set as Set
-
--- text
-import qualified Data.Text as T
 
 -- toml-reader
 import qualified TOML
@@ -58,56 +56,67 @@ import Weeder.Config
 import Paths_weeder (version)
 
 
+data CLIArguments = CLIArguments
+  { configPath :: FilePath
+  , hieExt :: String
+  , hieDirectories :: [FilePath]
+  , requireHsFiles :: Bool
+  , writeDefaultConfig :: Bool
+  }
+
+
+parseCLIArguments :: Parser CLIArguments
+parseCLIArguments = do
+    configPath <- strOption
+        ( long "config"
+            <> help "A file path for Weeder's configuration."
+            <> value "./weeder.toml"
+            <> metavar "<weeder.toml>"
+        )
+    hieExt <- strOption
+        ( long "hie-extension"
+            <> value ".hie"
+            <> help "Extension of HIE files"
+            <> showDefault
+        )
+    hieDirectories <- many (
+        strOption
+            ( long "hie-directory"
+                <> help "A directory to look for .hie files in. Maybe specified multiple times. Default ./."
+            )
+        )
+    requireHsFiles <- switch
+          ( long "require-hs-files"
+              <> help "Skip stale .hie files with no matching .hs modules"
+          )
+    writeDefaultConfig <- switch
+          ( long "write-default-config"
+              <> help "Write a default configuration file if the one specified by --config does not exist"
+          )
+    pure CLIArguments{..}
+
+
 -- | Parse command line arguments and into a 'Config' and run 'mainWithConfig'.
 main :: IO ()
 main = do
-  (configExpr, hieExt, hieDirectories, requireHsFiles, writeDefaultConfig) <-
+  CLIArguments{..} <-
     execParser $
-      info (optsP <**> helper <**> versionP) mempty
+      info (parseCLIArguments <**> helper <**> versionP) mempty
 
   configExists <-
-    doesFileExist (T.unpack configExpr)
+    doesFileExist configPath
 
   unless (writeDefaultConfig ==> configExists) do
-    hPutStrLn stderr $ "Did not find config: wrote default config to " ++ T.unpack configExpr
-    writeFile (T.unpack configExpr) (configToToml defaultConfig)
+    hPutStrLn stderr $ "Did not find config: wrote default config to " ++ configPath
+    writeFile configPath (configToToml defaultConfig)
 
   (exitCode, _) <-
-    TOML.decodeFile (T.unpack configExpr)
+    TOML.decodeFile configPath
       >>= either throwIO pure
       >>= mainWithConfig hieExt hieDirectories requireHsFiles
 
   exitWith exitCode
   where
-    optsP = (,,,,)
-        <$> strOption
-            ( long "config"
-                <> help "A file path for Weeder's configuration."
-                <> value "./weeder.toml"
-                <> metavar "<weeder.toml>"
-                <> showDefaultWith T.unpack
-            )
-        <*> strOption
-            ( long "hie-extension"
-                <> value ".hie"
-                <> help "Extension of HIE files"
-                <> showDefault
-            )
-        <*> many (
-            strOption
-                ( long "hie-directory"
-                    <> help "A directory to look for .hie files in. Maybe specified multiple times. Default ./."
-                )
-            )
-        <*> switch
-              ( long "require-hs-files"
-                  <> help "Skip stale .hie files with no matching .hs modules"
-              )
-        <*> switch
-              ( long "write-default-config"
-                  <> help "Write a default configuration file if the one specified by --config does not exist"
-              )
-
     versionP = infoOption ( "weeder version "
                             <> showVersion version
                             <> "\nhie version "
