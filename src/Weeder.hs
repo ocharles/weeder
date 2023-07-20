@@ -89,7 +89,7 @@ import GHC.Iface.Ext.Utils
   )
 import GHC.Unit.Module ( Module, moduleStableString )
 import GHC.Utils.Outputable ( defaultSDocContext, showSDocOneLine )
-import GHC.Iface.Type 
+import GHC.Iface.Type
   ( ShowForAllFlag (ShowForAllWhen)
   , pprIfaceSigmaType
   , IfaceTyCon (IfaceTyCon, ifaceTyConName)
@@ -257,7 +257,7 @@ typeToNames :: HieTypeFix -> Set Name
 typeToNames (Roll t) = case t of
   HTyVarTy n -> Set.singleton n
 
-  HAppTy a (HieArgs args) -> 
+  HAppTy a (HieArgs args) ->
     typeToNames a <> hieArgsTypes args
 
   HTyConApp (IfaceTyCon{ifaceTyConName}) (HieArgs args) ->
@@ -265,10 +265,10 @@ typeToNames (Roll t) = case t of
 
   HForAllTy _ a -> typeToNames a
 
-  HFunTy _mult b c -> 
+  HFunTy _mult b c ->
     typeToNames b <> typeToNames c
 
-  HQualTy a b -> 
+  HQualTy a b ->
     typeToNames a <> typeToNames b
 
   HLitTy _ -> mempty
@@ -360,7 +360,7 @@ addDeclaration decl =
 addAllDeclarations :: ( MonadState Analysis m, MonadReader AnalysisInfo m ) => HieAST TypeIndex -> m ()
 addAllDeclarations n = do
   Config{ unusedTypes } <- asks weederConfig
-  for_ ( findIdentifiers' ( const True ) n ) 
+  for_ ( findIdentifiers' ( const True ) n )
     \(d, IdentifierDetails{ identType }, _) -> do
       addDeclaration d
       when unusedTypes $
@@ -390,6 +390,7 @@ topLevelAnalysis n@Node{ nodeChildren } = do
           [ analyseTypeSynonym n
           , analyseFamilyDeclaration n
           , analyseFamilyInstance n
+          , analyseTypeSignature n
           ] else []
       )
 
@@ -495,7 +496,7 @@ analyseDataDeclaration n = do
 
           -- Connecting record fields to their constructors
           for_ ( recFieldDecls constructor ) \recFieldDec ->
-            for_ ( foldMap ( First . Just ) ( findIdentifiers ( any isRecFieldDec ) recFieldDec ) ) 
+            for_ ( foldMap ( First . Just ) ( findIdentifiers ( any isRecFieldDec ) recFieldDec ) )
               (`addDependency` conDec)
 
   for_ ( derivedInstances n ) \(d, cs, ids, ast) -> do
@@ -600,6 +601,21 @@ analyseFamilyInstance n = do
   guard $ annsContain n ("TyFamInstD", "InstDecl")
 
   for_ ( uses n ) addImplicitRoot
+
+
+analyseTypeSignature :: ( Alternative m, MonadState Analysis m ) => HieAST a -> m ()
+analyseTypeSignature n = do
+  guard $ annsContain n ("TypeSig", "Sig")
+
+  for_ (findIdentifiers isTypeSigDecl n) $
+    for_ ( uses n ) . addDependency
+
+  where
+
+    isTypeSigDecl =
+      any \case
+        TyDecl -> True
+        _      -> False
 
 
 analysePatternSynonyms :: ( Alternative m, MonadState Analysis m ) => HieAST a -> m ()
