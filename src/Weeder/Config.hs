@@ -7,6 +7,7 @@
 module Weeder.Config 
   ( Config(..)
   , configToToml
+  , decodeNoDefaults
   , defaultConfig 
   , PatternWithModule(..)
   , modulePattern
@@ -95,6 +96,16 @@ instance TOML.DecodeTOML Config where
       TOML.getFieldOptWith (TOML.getArrayOf $ decodePatternWithModule "instance") "root-instances" 
 
     pure Config{..}
+
+
+decodeNoDefaults :: TOML.Decoder Config
+decodeNoDefaults = do
+  rootPatterns <- TOML.getField "roots"
+  typeClassRoots <- TOML.getField "type-class-roots"
+  rootClasses <- Set.fromList <$> TOML.getFieldWith (TOML.getArrayOf $ decodePatternWithModule "class") "root-classes"
+  rootInstances <- Set.fromList <$> TOML.getFieldWith (TOML.getArrayOf $ decodePatternWithModule "instance") "root-instances"
+
+  pure Config{..}
 
 
 -- | Decoder for a value of any of the forms:

@@ -47,6 +47,9 @@ import Text.Regex.TDFA ( (=~) )
 -- optparse-applicative
 import Options.Applicative
 
+-- text
+import qualified Data.Text.IO as T
+
 -- transformers
 import Control.Monad.Trans.State.Strict ( execStateT )
 
@@ -62,6 +65,7 @@ data CLIArguments = CLIArguments
   , hieDirectories :: [FilePath]
   , requireHsFiles :: Bool
   , writeDefaultConfig :: Bool
+  , noDefaultFields :: Bool
   }
 
 
@@ -93,6 +97,10 @@ parseCLIArguments = do
           ( long "write-default-config"
               <> help "Write a default configuration file if the one specified by --config does not exist"
           )
+    noDefaultFields <- switch
+          ( long "no-default-fields"
+              <> help "Do not use default field values for missing fields in the configuration."
+          )
     pure CLIArguments{..}
 
 
@@ -111,12 +119,16 @@ main = do
     writeFile configPath (configToToml defaultConfig)
 
   (exitCode, _) <-
-    TOML.decodeFile configPath
+    decodeConfig noDefaultFields configPath
       >>= either throwIO pure
       >>= mainWithConfig hieExt hieDirectories requireHsFiles
 
   exitWith exitCode
   where
+    decodeConfig noDefaultFields = 
+      if noDefaultFields 
+        then fmap (TOML.decodeWith decodeNoDefaults) . T.readFile
+        else TOML.decodeFile
     versionP = infoOption ( "weeder version "
                             <> showVersion version
                             <> "\nhie version "
