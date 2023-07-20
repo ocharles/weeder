@@ -4,6 +4,7 @@
 {-# language NamedFieldPuns #-}
 {-# language OverloadedStrings #-}
 {-# language LambdaCase #-}
+{-# language RecordWildCards #-}
 
 -- | This module provides an entry point to the Weeder executable.
 
@@ -11,18 +12,17 @@ module Weeder.Main ( main, mainWithConfig ) where
 
 -- base
 import Control.Exception ( throwIO )
-import Control.Monad ( guard )
+import Control.Monad ( guard, unless )
 import Data.Foldable
 import Data.List ( isSuffixOf, sortOn )
 import Data.Version ( showVersion )
 import System.Exit ( exitFailure, ExitCode(..), exitWith )
+import System.IO ( stderr, hPutStrLn )
 
 -- containers
 import qualified Data.Map.Strict as Map
+import Data.Set ( Set )
 import qualified Data.Set as Set
-
--- text
-import qualified Data.Text as T
 
 -- toml-reader
 import qualified TOML
@@ -47,6 +47,9 @@ import Text.Regex.TDFA ( (=~) )
 -- optparse-applicative
 import Options.Applicative
 
+-- text
+import qualified Data.Text.IO as T
+
 -- transformers
 import Control.Monad.Trans.State.Strict ( execStateT )
 
@@ -56,45 +59,76 @@ import Weeder.Config
 import Paths_weeder (version)
 
 
+data CLIArguments = CLIArguments
+  { configPath :: FilePath
+  , hieExt :: String
+  , hieDirectories :: [FilePath]
+  , requireHsFiles :: Bool
+  , writeDefaultConfig :: Bool
+  , noDefaultFields :: Bool
+  }
+
+
+parseCLIArguments :: Parser CLIArguments
+parseCLIArguments = do
+    configPath <- strOption
+        ( long "config"
+            <> help "A file path for Weeder's configuration."
+            <> value "./weeder.toml"
+            <> metavar "<weeder.toml>"
+        )
+    hieExt <- strOption
+        ( long "hie-extension"
+            <> value ".hie"
+            <> help "Extension of HIE files"
+            <> showDefault
+        )
+    hieDirectories <- many (
+        strOption
+            ( long "hie-directory"
+                <> help "A directory to look for .hie files in. Maybe specified multiple times. Default ./."
+            )
+        )
+    requireHsFiles <- switch
+          ( long "require-hs-files"
+              <> help "Skip stale .hie files with no matching .hs modules"
+          )
+    writeDefaultConfig <- switch
+          ( long "write-default-config"
+              <> help "Write a default configuration file if the one specified by --config does not exist"
+          )
+    noDefaultFields <- switch
+          ( long "no-default-fields"
+              <> help "Do not use default field values for missing fields in the configuration."
+          )
+    pure CLIArguments{..}
+
+
 -- | Parse command line arguments and into a 'Config' and run 'mainWithConfig'.
 main :: IO ()
 main = do
-  (configExpr, hieExt, hieDirectories, requireHsFiles) <-
+  CLIArguments{..} <-
     execParser $
-      info (optsP <**> helper <**> versionP) mempty
+      info (parseCLIArguments <**> helper <**> versionP) mempty
 
-  (exitCode, _) <- 
-    TOML.decodeFile (T.unpack configExpr)
+  configExists <-
+    doesFileExist configPath
+
+  unless (writeDefaultConfig ==> configExists) do
+    hPutStrLn stderr $ "Did not find config: wrote default config to " ++ configPath
+    writeFile configPath (configToToml defaultConfig)
+
+  (exitCode, _) <-
+    decodeConfig noDefaultFields configPath
       >>= either throwIO pure
       >>= mainWithConfig hieExt hieDirectories requireHsFiles
-  
+
   exitWith exitCode
   where
-    optsP = (,,,)
-        <$> strOption
-            ( long "config"
-                <> help "A file path for Weeder's configuration."
-                <> value "./weeder.toml"
-                <> metavar "<weeder.toml>"
-                <> showDefaultWith T.unpack
-            )
-        <*> strOption
-            ( long "hie-extension"
-                <> value ".hie"
-                <> help "Extension of HIE files"
-                <> showDefault
-            )
-        <*> many (
-            strOption
-                ( long "hie-directory"
-                    <> help "A directory to look for .hie files in. Maybe specified multiple times. Default ./."
-                )
-            )
-        <*> switch
-              ( long "require-hs-files"
-                  <> help "Skip stale .hie files with no matching .hs modules"
-              )
-
+    decodeConfig noDefaultFields = 
+      if noDefaultFields 
+        then fmap (TOML.decodeWith decodeNoDefaults) . T.readFile
+        else TOML.decodeFile
     versionP = infoOption ( "weeder version "
                             <> showVersion version
                             <> "\nhie version "
@@ -148,7 +182,7 @@ mainWithConfig hieExt hieDirectories requireHsFiles weederConfig@Config{ rootPat
     reachableSet =
       reachable
         analysis
-        ( Set.map DeclarationRoot roots <> filterImplicitRoots (prettyPrintedType analysis) ( implicitRoots analysis ) )
+        ( Set.map DeclarationRoot roots <> filterImplicitRoots analysis ( implicitRoots analysis ) )
 
     dead =
       allDeclarations analysis Set.\\ reachableSet
@@ -178,19 +212,30 @@ mainWithConfig hieExt hieDirectories requireHsFiles weederConfig@Config{ rootPat
 
   where
 
-    filterImplicitRoots printedTypeMap = Set.filter $ \case
-      DeclarationRoot _ -> True -- keep implicit roots for rewrite rules
+    filterImplicitRoots :: Analysis -> Set Root -> Set Root
+    filterImplicitRoots Analysis{ prettyPrintedType, modulePaths } = Set.filter $ \case
+      DeclarationRoot _ -> True -- keep implicit roots for rewrite rules etc
+
       ModuleRoot _ -> True
-      InstanceRoot d c -> typeClassRoots || any (occNameString c =~) rootClasses || matchingType
+
+      InstanceRoot d c -> typeClassRoots || matchingClass || matchingType
         where
-          matchingType = case Map.lookup d printedTypeMap of
-            Just t -> any (t =~) rootInstances
+          matchingClass = any (maybe True (occNameString c =~)) (filterOnModule rootClasses)
+
+          matchingType = case Map.lookup d prettyPrintedType of
+            Just t -> any (maybe True (t =~)) (filterOnModule rootInstances)
             Nothing -> False
-      
+
+          filterOnModule :: Set PatternWithModule -> Set (Maybe String)
+          filterOnModule = Set.map mainPattern . Set.filter (maybe True modulePathMatches . modulePattern)
+
+          modulePathMatches :: String -> Bool
+          modulePathMatches p = maybe False (=~ p) (Map.lookup ( declModule d ) modulePaths)
+
 
 showWeed :: FilePath -> RealSrcLoc -> Declaration -> String
 showWeed path start d =
-  showPath path start 
+  showPath path start
     <> occNameString ( declOccName d)
 
 

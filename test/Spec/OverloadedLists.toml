@@ -1,3 +1,5 @@
 roots = [ "Spec.OverloadedLists.OverloadedLists.root" ]
 
+root-classes = []
+
 type-class-roots = false

@@ -1,3 +1,5 @@
 roots = [ "Spec.OverloadedStrings.OverloadedStrings.root", "Spec.OverloadedStrings.OverloadedStrings.root'" ]
 
+root-classes = []
+
 type-class-roots = false

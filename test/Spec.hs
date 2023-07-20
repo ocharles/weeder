@@ -1,6 +1,7 @@
 import qualified Weeder.Main
 import qualified Weeder
 import qualified TOML
+import qualified UnitTests
 
 import Algebra.Graph.Export.Dot
 import GHC.Types.Name.Occurrence (occNameString)
@@ -28,6 +29,7 @@ main = do
       describe "Weeder.Main" $
         describe "mainWithConfig" $
           zipWithM_ (uncurry integrationTestSpec) testOutputFiles hieDirectories
+      UnitTests.spec
   where
     -- Draw a dotfile via graphviz
     drawDot f = callCommand $ "dot -Tpng " ++ f ++ " -o " ++ (f -<.> ".png")
