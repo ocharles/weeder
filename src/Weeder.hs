@@ -485,19 +485,13 @@ analyseDataDeclaration n = do
       when unusedTypes $
         define dataTypeName (nodeSpan n)
 
+      for_ ( uses n ) ( addDependency dataTypeName )
+
+      -- We lose acyclicity here, but without this TypeAliasGADT.hs 
+      -- fails with a false positive for the data declaration A
       for_ ( constructors n ) \constructor ->
         for_ ( foldMap ( First . Just ) ( findIdentifiers ( any isConDec ) constructor ) ) \conDec -> do
           addDependency conDec dataTypeName
-
-          -- uncomment to make unused constructors show up in the output
-          --define conDec (nodeSpan constructor)
-
-          for_ ( uses constructor ) ( addDependency conDec )
-
-          -- Connecting record fields to their constructors
-          for_ ( recFieldDecls constructor ) \recFieldDec ->
-            for_ ( foldMap ( First . Just ) ( findIdentifiers ( any isRecFieldDec ) recFieldDec ) )
-              (`addDependency` conDec)
 
   for_ ( derivedInstances n ) \(d, cs, ids, ast) -> do
     define d (nodeSpan ast)
@@ -702,17 +696,15 @@ uses =
     foldMap Set.singleton
   . findIdentifiers (any isUse)
 
-  where
-
-    isUse :: ContextInfo -> Bool
-    isUse = \case
-      Use -> True
-      -- not RecFieldMatch and RecFieldDecl because they occur under
-      -- data declarations, which we do not want to add as dependencies
-      -- because that would make the graph no longer acyclic
-      -- RecFieldAssign will be most likely accompanied by the constructor
-      RecField RecFieldOcc _ -> True
-      _ -> False
+isUse :: ContextInfo -> Bool
+isUse = \case
+  Use -> True
+  -- not RecFieldMatch and RecFieldDecl because they occur under
+  -- data declarations, which we do not want to add as dependencies
+  -- because that would make the graph no longer acyclic
+  -- RecFieldAssign will be most likely accompanied by the constructor
+  RecField RecFieldOcc _ -> True
+  _ -> False
 
 
 nameToDeclaration :: Name -> Maybe Declaration
