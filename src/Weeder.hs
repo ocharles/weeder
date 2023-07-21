@@ -32,11 +32,12 @@ import Algebra.Graph.ToGraph ( dfs )
 -- base
 import Control.Applicative ( Alternative )
 import Control.Monad ( guard, msum, when, unless )
+import Data.Traversable ( for )
 import Data.Maybe ( mapMaybe )
 import Data.Foldable ( for_, traverse_ )
 import Data.Function ( (&) )
 import Data.List ( intercalate )
-import Data.Monoid ( First( First ) )
+import Data.Monoid ( First( First ), getFirst )
 import GHC.Generics ( Generic )
 import Prelude hiding ( span )
 
@@ -74,7 +75,7 @@ import GHC.Iface.Ext.Types
   , NodeAnnotation( NodeAnnotation, nodeAnnotType )
   , NodeInfo( nodeIdentifiers, nodeAnnotations )
   , Scope( ModuleScope )
-  , RecFieldContext ( RecFieldOcc, RecFieldDecl )
+  , RecFieldContext ( RecFieldOcc )
   , TypeIndex
   , getSourcedNodeInfo
   )
@@ -485,13 +486,17 @@ analyseDataDeclaration n = do
       when unusedTypes $
         define dataTypeName (nodeSpan n)
 
-      for_ ( uses n ) ( addDependency dataTypeName )
-
-      -- We lose acyclicity here, but without this TypeAliasGADT.hs 
-      -- fails with a false positive for the data declaration A
-      for_ ( constructors n ) \constructor ->
-        for_ ( foldMap ( First . Just ) ( findIdentifiers ( any isConDec ) constructor ) ) \conDec -> do
+      -- Without connecting constructors to the data declaration TypeAliasGADT.hs 
+      -- fails with a false positive for A
+      conDecs <- for ( constructors n ) \constructor ->
+        for ( foldMap ( First . Just ) ( findIdentifiers ( any isConDec ) constructor ) ) \conDec -> do
           addDependency conDec dataTypeName
+          pure conDec
+
+      -- To keep acyclicity in record declarations
+      let isDependent d = Just d `elem` fmap getFirst conDecs
+
+      for_ ( uses n ) (\d -> unless (isDependent d) $ addDependency dataTypeName d)
 
   for_ ( derivedInstances n ) \(d, cs, ids, ast) -> do
     define d (nodeSpan ast)
@@ -514,17 +519,9 @@ analyseDataDeclaration n = do
       Decl ConDec _ -> True
       _             -> False
 
-    isRecFieldDec = \case
-      RecField RecFieldDecl _ -> True
-      _                       -> False
-
 
 constructors :: HieAST a -> Seq ( HieAST a )
 constructors = findNodeTypes "ConDecl"
-
-
-recFieldDecls :: HieAST a -> Seq ( HieAST a )
-recFieldDecls = findNodeTypes "ConDeclField"
 
 
 derivedInstances :: HieAST a -> Seq (Declaration, Set Name, IdentifierDetails a, HieAST a)
