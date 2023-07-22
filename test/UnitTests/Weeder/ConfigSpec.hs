@@ -21,6 +21,7 @@ prop_configToToml =
         , typeClassRoots = True
         , rootClasses = Set.fromList [ModuleOnly "Baz", PatternAndModule "foo\\\\[bar]" "Bar\\\\.foo", PatternOnly "b\\"]
         , rootInstances = Set.fromList [ModuleOnly "Quux\\\\[\\]", PatternAndModule "[\\[\\\\[baz" "[Quuux]", PatternOnly "a"]
+        , unusedTypes = True
         }
       cf' = T.pack $ configToToml cf
    in TOML.decode cf' == Right cf

@@ -1,4 +1,7 @@
-roots = [ "Spec.OverloadedStrings.OverloadedStrings.root", "Spec.OverloadedStrings.OverloadedStrings.root'" ]
+roots = [ "Spec.OverloadedStrings.OverloadedStrings.root"
+        , "Spec.OverloadedStrings.OverloadedStrings.root'" 
+        , "Spec.OverloadedStrings.OverloadedStrings.BetterString"
+        ]
 
 root-classes = []
 

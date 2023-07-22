@@ -49,6 +49,9 @@ data Config = Config
   , rootInstances :: Set PatternWithModule
     -- ^ All instances with types matching these regular expressions will 
     -- be added to the root set.
+  , unusedTypes :: Bool
+    -- ^ Toggle to look for and output unused types. Type family instances will
+    -- be marked as implicit roots.
   } deriving (Eq, Show)
 
 
@@ -83,6 +86,7 @@ defaultConfig = Config
   , typeClassRoots = False
   , rootClasses = Set.fromList [ PatternOnly "IsString", PatternOnly "IsList" ]
   , rootInstances = mempty
+  , unusedTypes = False
   }
 
 
@@ -94,6 +98,7 @@ instance TOML.DecodeTOML Config where
       TOML.getFieldOptWith (TOML.getArrayOf $ decodePatternWithModule "class") "root-classes" 
     rootInstances <- maybe (rootInstances defaultConfig) Set.fromList <$>
       TOML.getFieldOptWith (TOML.getArrayOf $ decodePatternWithModule "instance") "root-instances" 
+    unusedTypes <- TOML.getFieldOr (unusedTypes defaultConfig) "unused-types"
 
     pure Config{..}
 
@@ -104,6 +109,7 @@ decodeNoDefaults = do
   typeClassRoots <- TOML.getField "type-class-roots"
   rootClasses <- Set.fromList <$> TOML.getFieldWith (TOML.getArrayOf $ decodePatternWithModule "class") "root-classes"
   rootInstances <- Set.fromList <$> TOML.getFieldWith (TOML.getArrayOf $ decodePatternWithModule "instance") "root-instances"
+  unusedTypes <- TOML.getField "unused-types"
 
   pure Config{..}
 
@@ -135,7 +141,6 @@ showPatternWithModule primaryField = \case
     ModuleOnly b -> "{" ++ "module" ++ " = " ++ show b ++ "}"
     PatternAndModule a b -> "{" ++ T.unpack primaryField ++ " = " ++ show a ++ ", " ++ "module" ++ " = " ++ show b ++ "}"
 
-
 configToToml :: Config -> String
 configToToml Config{..}
   = unlines . intersperse mempty $
@@ -143,6 +148,7 @@ configToToml Config{..}
       , "type-class-roots = " ++ map toLower (show typeClassRoots)
       , "root-classes = " ++ "[" ++ intercalate "," (map (showPatternWithModule "class") rootClasses') ++ "]"
       , "root-instances = " ++ "[" ++ intercalate "," (map (showPatternWithModule "instance") rootInstances') ++ "]"
+      , "unused-types = " ++ map toLower (show unusedTypes)
       ]
   where
     rootClasses' = Set.toList rootClasses

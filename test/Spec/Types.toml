@@ -1,0 +1,9 @@
+roots = [ "Spec.Types.Usages.numberUsage"
+        , "Spec.Types.Usages.modulo1Usage"
+        , "Spec.Types.Usages.recordUsage"
+        , "Spec.Types.Usages.vectorUsage"
+        ]
+
+type-class-roots = false
+
+unused-types = true

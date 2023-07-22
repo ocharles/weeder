@@ -1,0 +1,9 @@
+roots = [ "Spec.TypeDataDecl.TypeDataDecl.Root" ]
+
+type-class-roots = false
+
+unused-types = true
+
+root-instances = []
+
+root-classes = []
