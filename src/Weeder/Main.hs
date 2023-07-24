@@ -11,14 +11,13 @@
 module Weeder.Main ( main, mainWithConfig, getHieFiles, runWeeder, Weed(..) ) where
 
 -- base
-import Control.Exception ( throwIO )
 import Control.Monad ( guard, unless )
 import Data.Foldable
 import Data.Function ((&))
 import Data.List ( isSuffixOf, sortOn )
 import Data.Version ( showVersion )
 import System.Exit ( ExitCode(..), exitWith )
-import System.IO ( stderr, hPutStrLn )
+import System.IO ( stderr, hPutStrLn, hPrint )
 
 -- containers
 import qualified Data.Map.Strict as Map
@@ -136,13 +135,18 @@ main = do
     writeFile configPath (configToToml defaultConfig)
 
   decodeConfig noDefaultFields configPath
-    >>= either throwIO pure
+    >>= either handleConfigError pure
     >>= mainWithConfig hieExt hieDirectories requireHsFiles
   where
+    handleConfigError e = do
+      hPrint stderr e
+      exitWith (ExitFailure 3)
+
     decodeConfig noDefaultFields = 
       if noDefaultFields 
         then fmap (TOML.decodeWith decodeNoDefaults) . T.readFile
         else TOML.decodeFile
+
     versionP = infoOption ( "weeder version "
                             <> showVersion version
                             <> "\nhie version "
