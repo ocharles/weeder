@@ -77,7 +77,6 @@ test-suite weeder-test
     , ghc
     , hspec
     , process
-    , silently
     , text
     , toml-reader
     , weeder
