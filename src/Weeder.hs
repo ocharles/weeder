@@ -14,7 +14,7 @@ module Weeder
     Analysis(..)
   , analyseHieFiles
   , emptyAnalysis
-  , allDeclarations
+  , outputableDeclarations
 
     -- ** Reachability
   , Root(..)
@@ -26,7 +26,7 @@ module Weeder
    where
 
 -- algebraic-graphs
-import Algebra.Graph ( Graph, edge, empty, overlay, vertex, vertexList )
+import Algebra.Graph ( Graph, edge, empty, overlay, vertex )
 import Algebra.Graph.ToGraph ( dfs )
 
 -- base
@@ -223,10 +223,11 @@ reachable Analysis{ dependencyGraph, exports } roots =
       ModuleRoot m -> foldMap Set.toList ( Map.lookup m exports )
 
 
--- | The set of all known declarations, including usages.
-allDeclarations :: Analysis -> Set Declaration
-allDeclarations Analysis{ dependencyGraph } =
-  Set.fromList ( vertexList dependencyGraph )
+-- | The set of all declarations that could possibly
+-- appear in the output.
+outputableDeclarations :: Analysis -> Set Declaration
+outputableDeclarations Analysis{ declarationSites } =
+  Map.keysSet declarationSites
 
 
 -- | Incrementally update 'Analysis' with information in a 'HieFile'.

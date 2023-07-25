@@ -270,6 +270,10 @@ runWeeder weederConfig@Config{ rootPatterns, typeClassRoots, rootInstances } hie
     analysis =
       execState ( analyseHieFiles weederConfig hieFiles ) emptyAnalysis
 
+    -- We limit ourselves to outputable declarations only rather than all
+    -- declarations in the graph. This has a slight performance benefit,
+    -- at the cost of having to assume that a non-outputable declaration
+    -- will always either be an implicit root or irrelevant.
     roots =
       Set.filter
         ( \d ->
@@ -277,15 +281,17 @@ runWeeder weederConfig@Config{ rootPatterns, typeClassRoots, rootInstances } hie
               ( displayDeclaration d =~ )
               rootPatterns
         )
-        ( allDeclarations analysis )
+        ( outputableDeclarations analysis )
 
     reachableSet =
       reachable
         analysis
         ( Set.map DeclarationRoot roots <> filterImplicitRoots analysis ( implicitRoots analysis ) )
 
+    -- We only care about dead declarations if they have a span assigned,
+    -- since they don't show up in the output otherwise
     dead =
-      allDeclarations analysis Set.\\ reachableSet
+      outputableDeclarations analysis Set.\\ reachableSet
 
     warnings =
       Map.unionsWith (++) $
