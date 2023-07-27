@@ -36,17 +36,19 @@ import System.FilePath ( isExtensionOf )
 
 -- ghc
 import GHC.Iface.Ext.Binary ( HieFileResult( HieFileResult, hie_file_result ), readHieFileWithVersion )
-import GHC.Iface.Ext.Types ( HieFile( hie_hs_file ), hieVersion )
+import GHC.Iface.Ext.Types ( HieFile( hie_hs_file, hie_asts ), hieVersion, HieASTs (getAsts) )
 import GHC.Unit.Module ( moduleName, moduleNameString )
 import GHC.Types.Name.Cache ( initNameCache, NameCache )
 import GHC.Types.Name ( occNameString )
-import GHC.Types.SrcLoc ( RealSrcLoc, realSrcSpanStart, srcLocLine )
 
 -- regex-tdfa
 import Text.Regex.TDFA ( matchTest )
 
 -- optparse-applicative
 import Options.Applicative
+
+-- parallel
+import Control.Parallel.Strategies ( rdeepseq, parMap )
 
 -- text
 import qualified Data.Text.IO as T
@@ -58,6 +60,7 @@ import Control.Monad.Trans.State.Strict ( execState )
 import Weeder
 import Weeder.Config
 import Paths_weeder (version)
+import GHC.Iface.Ext.Utils (generateReferencesMap)
 
 
 -- | Each exception corresponds to an exit code.
@@ -158,7 +161,7 @@ parseCLIArguments = do
 
 data Weed = Weed
   { weedPath :: FilePath
-  , weedLoc :: RealSrcLoc
+  , weedLoc :: Int
   , weedDeclaration :: Declaration
   , weedPrettyPrintedType :: Maybe String
   }
@@ -166,7 +169,7 @@ data Weed = Weed
 
 formatWeed :: Weed -> String
 formatWeed Weed{..} =
-  weedPath <> ":" <> show ( srcLocLine weedLoc ) <> ": "
+  weedPath <> ":" <> show weedLoc <> ": "
     <> case weedPrettyPrintedType of
       Nothing -> occNameString ( declOccName weedDeclaration )
       Just t -> "(Instance) :: " <> t
@@ -266,9 +269,16 @@ getHieFiles hieExt hieDirectories requireHsFiles = do
 -- 'formatWeed', and the final 'Analysis'.
 runWeeder :: Config -> [HieFile] -> ([Weed], Analysis)
 runWeeder weederConfig@Config{ rootPatterns, typeClassRoots, rootInstances } hieFiles =
-  let
-    analysis =
-      execState ( analyseHieFiles weederConfig hieFiles ) emptyAnalysis
+  let 
+    asts = concatMap (Map.elems . getAsts . hie_asts) hieFiles
+
+    rf = generateReferencesMap asts
+
+    analyses =
+      parMap rdeepseq (\hf -> execState (analyseHieFile rf weederConfig hf) emptyAnalysis) hieFiles
+
+    analysis = 
+      foldl' mappend mempty analyses
 
     -- We limit ourselves to outputable declarations only rather than all
     -- declarations in the graph. This has a slight performance benefit,
@@ -299,16 +309,15 @@ runWeeder weederConfig@Config{ rootPatterns, typeClassRoots, rootInstances } hie
         ( \d ->
             fold $ do
               moduleFilePath <- Map.lookup ( declModule d ) ( modulePaths analysis )
-              spans <- Map.lookup d ( declarationSites analysis )
-              guard $ not $ null spans
-              let starts = map realSrcSpanStart $ Set.toList spans
-              return [ Map.singleton moduleFilePath ( liftA2 (,) starts (pure d) ) ]
+              starts <- Map.lookup d ( declarationSites analysis )
+              guard $ not $ null starts
+              return [ Map.singleton moduleFilePath ( liftA2 (,) (Set.toList starts) (pure d) ) ]
         )
         dead
 
     weeds =
       Map.toList warnings & concatMap \( weedPath, declarations ) ->
-        sortOn (srcLocLine . fst) declarations & map \( weedLoc, weedDeclaration ) ->
+        sortOn fst declarations & map \( weedLoc, weedDeclaration ) ->
           Weed { weedPrettyPrintedType = Map.lookup weedDeclaration (prettyPrintedType analysis)
                , weedPath
                , weedLoc

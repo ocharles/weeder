@@ -33,6 +33,7 @@ library
     , lens                 ^>= 5.1 || ^>= 5.2
     , mtl                  ^>= 2.2.2 || ^>= 2.3
     , optparse-applicative ^>= 0.14.3.0 || ^>= 0.15.1.0 || ^>= 0.16.0.0 || ^>=  0.17
+    , parallel             ^>= 3.2.0.0
     , regex-tdfa           ^>= 1.2.0.0 || ^>= 1.3.1.0
     , text                 ^>= 2.0.1
     , toml-reader          ^>= 0.2.0.0
@@ -46,7 +47,7 @@ library
     Paths_weeder
   other-modules:
     Paths_weeder
-  ghc-options: -Wall -fwarn-incomplete-uni-patterns
+  ghc-options: -Wall -fwarn-incomplete-uni-patterns -threaded
   default-language: Haskell2010
 
 
@@ -63,7 +64,7 @@ executable weeder
     , weeder
   main-is: Main.hs
   hs-source-dirs: exe-weeder
-  ghc-options: -Wall -fwarn-incomplete-uni-patterns
+  ghc-options: -Wall -fwarn-incomplete-uni-patterns -threaded -rtsopts -with-rtsopts=-N
   default-language: Haskell2010
 
 test-suite weeder-test

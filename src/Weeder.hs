@@ -1,6 +1,7 @@
 {-# language ApplicativeDo #-}
 {-# language BlockArguments #-}
 {-# language DeriveGeneric #-}
+{-# language DeriveAnyClass #-}
 {-# language FlexibleContexts #-}
 {-# language LambdaCase #-}
 {-# language NamedFieldPuns #-}
@@ -12,7 +13,7 @@
 module Weeder
   ( -- * Analysis
     Analysis(..)
-  , analyseHieFiles
+  , analyseHieFile
   , emptyAnalysis
   , outputableDeclarations
 
@@ -66,7 +67,7 @@ import GHC.Iface.Ext.Types
   , DeclType( DataDec, ClassDec, ConDec, SynDec, FamDec )
   , EvVarSource ( EvInstBind, cls )
   , HieAST( Node, nodeChildren, nodeSpan, sourcedNodeInfo )
-  , HieASTs( HieASTs, getAsts )
+  , HieASTs( HieASTs )
   , HieFile( HieFile, hie_asts, hie_exports, hie_module, hie_hs_file, hie_types )
   , HieType( HTyVarTy, HAppTy, HTyConApp, HForAllTy, HFunTy, HQualTy, HLitTy, HCastTy, HCoercionTy )
   , HieArgs( HieArgs )
@@ -84,7 +85,6 @@ import GHC.Iface.Ext.Utils
   , RefMap
   , findEvidenceUse
   , getEvidenceTree
-  , generateReferencesMap
   , hieTypeToIface
   , recoverFullType
   )
@@ -105,7 +105,7 @@ import GHC.Types.Name
   , isVarOcc
   , occNameString
   )
-import GHC.Types.SrcLoc ( RealSrcSpan, realSrcSpanEnd, realSrcSpanStart )
+import GHC.Types.SrcLoc ( RealSrcSpan, realSrcSpanEnd, realSrcSpanStart, srcLocLine )
 
 -- lens
 import Control.Lens ( (%=) )
@@ -113,6 +113,9 @@ import Control.Lens ( (%=) )
 -- mtl
 import Control.Monad.State.Class ( MonadState )
 import Control.Monad.Reader.Class ( MonadReader, asks, ask)
+
+-- parallel
+import Control.Parallel.Strategies ( NFData )
 
 -- transformers
 import Control.Monad.Trans.Maybe ( runMaybeT )
@@ -130,7 +133,7 @@ data Declaration =
       -- ^ The symbol name of a declaration.
     }
   deriving
-    ( Eq, Ord )
+    ( Eq, Ord, Generic, NFData )
 
 
 instance Show Declaration where
@@ -158,7 +161,7 @@ data Analysis =
   Analysis
     { dependencyGraph :: Graph Declaration
       -- ^ A graph between declarations, capturing dependencies.
-    , declarationSites :: Map Declaration ( Set RealSrcSpan )
+    , declarationSites :: Map Declaration (Set Int)
       -- ^ A partial mapping between declarations and their definition site.
       -- This Map is partial as we don't always know where a Declaration was
       -- defined (e.g., it may come from a package without source code).
@@ -179,7 +182,16 @@ data Analysis =
       -- appearance of declarations in the output
     }
   deriving
-    ( Generic )
+    ( Generic, NFData )
+
+
+instance Semigroup Analysis where
+  (<>) (Analysis a1 b1 c1 d1 e1 f1) (Analysis a2 b2 c2 d2 e2 f2)= 
+    Analysis (a1 `overlay` a2) (Map.unionWith (<>) b1 b2) (c1 <> c2) (Map.unionWith (<>) d1 d2) (e1 <> e2) (f1 <> f2)
+
+
+instance Monoid Analysis where
+  mempty = emptyAnalysis
 
 
 data AnalysisInfo =
@@ -207,7 +219,7 @@ data Root
   | -- | All exported declarations in a module are roots.
     ModuleRoot Module
   deriving
-    ( Eq, Ord )
+    ( Eq, Ord, Generic, NFData )
 
 
 -- | Determine the set of all declaration reachable from a set of roots.
@@ -249,8 +261,14 @@ initialGraph info =
 
 
 -- | Incrementally update 'Analysis' with information in a 'HieFile'.
-analyseHieFile :: ( MonadState Analysis m, MonadReader AnalysisInfo m ) => m ()
-analyseHieFile = do
+analyseHieFile :: (MonadState Analysis m) => RefMap TypeIndex -> Config -> HieFile -> m ()
+analyseHieFile rf weederConfig hieFile =
+  let info = AnalysisInfo hieFile weederConfig rf
+   in runReaderT analyseHieFile' info
+
+
+analyseHieFile' :: ( MonadState Analysis m, MonadReader AnalysisInfo m ) => m ()
+analyseHieFile' = do
   HieFile{ hie_asts = HieASTs hieASTs, hie_exports, hie_module, hie_hs_file } <- asks currentHieFile
   #modulePaths %= Map.insert hie_module hie_hs_file
   
@@ -307,20 +325,6 @@ typeToNames (Roll t) = case t of
     hieArgsTypes = foldMap (typeToNames . snd) . filter fst
 
 
--- | Incrementally update 'Analysis' with information in every 'HieFile'.
-analyseHieFiles :: (Foldable f, MonadState Analysis m) => Config -> f HieFile -> m ()
-analyseHieFiles weederConfig hieFiles = do
-  for_ hieFiles \hieFile -> do
-    let info = AnalysisInfo hieFile weederConfig rf
-    runReaderT analyseHieFile info
-
-  where
-
-    asts = concatMap (Map.elems . getAsts . hie_asts) hieFiles
-
-    rf = generateReferencesMap asts
-
-
 analyseExport :: MonadState Analysis m => Module -> AvailInfo -> m ()
 analyseExport m = \case
   Avail (NormalGreName name) ->
@@ -371,7 +375,7 @@ addInstanceRoot x t cls = do
 define :: MonadState Analysis m => Declaration -> RealSrcSpan -> m ()
 define decl span =
   when ( realSrcSpanStart span /= realSrcSpanEnd span ) do
-    #declarationSites %= Map.insertWith Set.union decl ( Set.singleton span )
+    #declarationSites %= Map.insertWith Set.union decl ( Set.singleton . srcLocLine $ realSrcSpanStart span )
     #dependencyGraph %= overlay ( vertex decl )
 
 
