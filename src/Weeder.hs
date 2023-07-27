@@ -26,15 +26,15 @@ module Weeder
    where
 
 -- algebraic-graphs
-import Algebra.Graph ( Graph, edge, empty, overlay, vertex )
+import Algebra.Graph ( Graph, edge, empty, overlay, vertex, stars )
 import Algebra.Graph.ToGraph ( dfs )
 
 -- base
 import Control.Applicative ( Alternative )
-import Control.Monad ( guard, msum, when, unless )
+import Control.Monad ( guard, msum, when, unless, mzero )
 import Data.Traversable ( for )
 import Data.Maybe ( mapMaybe )
-import Data.Foldable ( for_, traverse_ )
+import Data.Foldable ( for_, traverse_, toList )
 import Data.Function ( (&) )
 import Data.List ( intercalate )
 import Data.Monoid ( First( First ), getFirst )
@@ -230,25 +230,46 @@ outputableDeclarations Analysis{ declarationSites } =
   Map.keysSet declarationSites
 
 
+-- Generate an initial graph of the current HieFile.
+initialGraph :: AnalysisInfo -> Graph Declaration
+initialGraph info =
+  let hf@HieFile{ hie_asts = HieASTs hieAsts } = currentHieFile info
+      Config{ unusedTypes } = weederConfig info
+      asts = Map.elems hieAsts
+      decls = concatMap (toList . findIdentifiers' (const True)) asts
+  in if unusedTypes
+    then stars do 
+      (d, IdentifierDetails{identType}, _) <- decls
+      t <- maybe mzero pure identType
+      let ns = Set.toList $ typeToNames (lookupType hf t)
+          ds = mapMaybe nameToDeclaration ns
+      guard $ not (null ds)
+      pure (d, ds)
+    else mempty
+
+
 -- | Incrementally update 'Analysis' with information in a 'HieFile'.
 analyseHieFile :: ( MonadState Analysis m, MonadReader AnalysisInfo m ) => m ()
 analyseHieFile = do
   HieFile{ hie_asts = HieASTs hieASTs, hie_exports, hie_module, hie_hs_file } <- asks currentHieFile
   #modulePaths %= Map.insert hie_module hie_hs_file
+  
+  g <- asks initialGraph
+  #dependencyGraph %= overlay g
 
-  for_ hieASTs \ast -> do
-    addAllDeclarations ast
-    topLevelAnalysis ast
+  for_ hieASTs topLevelAnalysis
 
   for_ hie_exports ( analyseExport hie_module )
 
 
-lookupType :: MonadReader AnalysisInfo m => TypeIndex -> m HieTypeFix
-lookupType t = recoverFullType t . hie_types <$> asks currentHieFile
+lookupType :: HieFile -> TypeIndex -> HieTypeFix
+lookupType hf t = recoverFullType t $ hie_types hf
 
 
 lookupPprType :: MonadReader AnalysisInfo m => TypeIndex -> m String
-lookupPprType = fmap renderType . lookupType
+lookupPprType t = do
+  hf <- asks currentHieFile
+  pure . renderType $ lookupType hf t
 
   where
 
@@ -352,28 +373,6 @@ define decl span =
   when ( realSrcSpanStart span /= realSrcSpanEnd span ) do
     #declarationSites %= Map.insertWith Set.union decl ( Set.singleton span )
     #dependencyGraph %= overlay ( vertex decl )
-
-
-addDeclaration :: MonadState Analysis m => Declaration -> m ()
-addDeclaration decl =
-  #dependencyGraph %= overlay ( vertex decl )
-
-
--- | Try and add vertices for all declarations in an AST - both
--- those declared here, and those referred to from here.
-addAllDeclarations :: ( MonadState Analysis m, MonadReader AnalysisInfo m ) => HieAST TypeIndex -> m ()
-addAllDeclarations n = do
-  Config{ unusedTypes } <- asks weederConfig
-  for_ ( findIdentifiers' ( const True ) n )
-    \(d, IdentifierDetails{ identType }, _) -> do
-      addDeclaration d
-      when unusedTypes $
-        case identType of
-          Just t -> do
-            hieType <- lookupType t
-            let names = typeToNames hieType
-            traverse_ (traverse_ (addDependency d) . nameToDeclaration) names
-          Nothing -> pure ()
 
 
 topLevelAnalysis :: ( MonadState Analysis m, MonadReader AnalysisInfo m ) => HieAST TypeIndex -> m ()
