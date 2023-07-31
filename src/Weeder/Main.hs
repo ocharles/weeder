@@ -59,6 +59,12 @@ import Weeder.Config
 import Paths_weeder (version)
 
 
+exitHieVersionFailure, exitConfigFailure, exitWeedsFound :: ExitCode
+exitHieVersionFailure = ExitFailure 2
+exitConfigFailure = ExitFailure 3
+exitWeedsFound = ExitFailure 228
+
+
 data CLIArguments = CLIArguments
   { configPath :: FilePath
   , hieExt :: String
@@ -140,7 +146,7 @@ main = do
   where
     handleConfigError e = do
       hPrint stderr e
-      exitWith (ExitFailure 3)
+      exitWith exitConfigFailure
 
     decodeConfig noDefaultFields = 
       if noDefaultFields 
@@ -169,7 +175,7 @@ mainWithConfig hieExt hieDirectories requireHsFiles weederConfig = do
     
   mapM_ (putStrLn . formatWeed) weeds
 
-  unless (null weeds) $ exitWith (ExitFailure 228)
+  unless (null weeds) $ exitWith exitWeedsFound
 
 
 -- | Find and read all .hie files in the given directories according to the given parameters,
@@ -333,7 +339,7 @@ readCompatibleHieFileOrExit nameCache path = do
                <> show v
       putStrLn $ "    weeder must be built with the same GHC version"
                <> " as the project it is used on"
-      exitWith (ExitFailure 2)
+      exitWith exitHieVersionFailure
 
 
 infixr 5 ==>
