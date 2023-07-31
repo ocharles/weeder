@@ -112,12 +112,12 @@ data Weed = Weed
   }
 
 
-instance Show Weed where
-  show Weed{..} =
-    weedPath <> ":" <> show ( srcLocLine weedLoc ) <> ": "
-      <> case weedPrettyPrintedType of
-        Nothing -> occNameString ( declOccName weedDeclaration )
-        Just t -> "(Instance) :: " <> t
+formatWeed :: Weed -> String
+formaWeed Weed{..} =
+  weedPath <> ":" <> show ( srcLocLine weedLoc ) <> ": "
+    <> case weedPrettyPrintedType of
+      Nothing -> occNameString ( declOccName weedDeclaration )
+      Just t -> "(Instance) :: " <> t
 
 
 -- | Parse command line arguments and into a 'Config' and run 'mainWithConfig'.
