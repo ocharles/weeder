@@ -84,6 +84,6 @@ integrationTestOutput hieDirectory = do
       graph' = export (defaultStyle (occNameString . Weeder.declOccName)) graph
   handle (\e -> hPrint stderr (e :: IOException)) $
     writeFile (hieDirectory <.> ".dot") graph'
-  pure (unlines $ map show weeds)
+  pure (unlines $ map Weeder.Main.formatWeed weeds)
   where
     configExpr = hieDirectory <.> ".toml"

@@ -8,7 +8,7 @@
 
 -- | This module provides an entry point to the Weeder executable.
 
-module Weeder.Main ( main, mainWithConfig, getHieFiles, runWeeder, Weed(..) ) where
+module Weeder.Main ( main, mainWithConfig, getHieFiles, runWeeder, Weed(..), formatWeed ) where
 
 -- base
 import Control.Monad ( guard, unless )
@@ -113,7 +113,7 @@ data Weed = Weed
 
 
 formatWeed :: Weed -> String
-formaWeed Weed{..} =
+formatWeed Weed{..} =
   weedPath <> ":" <> show ( srcLocLine weedLoc ) <> ": "
     <> case weedPrettyPrintedType of
       Nothing -> occNameString ( declOccName weedDeclaration )
@@ -167,7 +167,7 @@ mainWithConfig hieExt hieDirectories requireHsFiles weederConfig = do
     (weeds, _) = 
       runWeeder weederConfig hieFiles
     
-  mapM_ print weeds
+  mapM_ (putStrLn . formatWeed) weeds
 
   unless (null weeds) $ exitWith (ExitFailure 228)
 
@@ -205,8 +205,8 @@ getHieFiles hieExt hieDirectories requireHsFiles = do
 
 -- | Run Weeder on the given .hie files with the given 'Config'.
 --
--- Returns a list of 'Weed's that can be displayed using their
--- 'Show' instance, and the final 'Analysis'.
+-- Returns a list of 'Weed's that can be displayed using
+-- 'formatWeed', and the final 'Analysis'.
 runWeeder :: Config -> [HieFile] -> ([Weed], Analysis)
 runWeeder weederConfig@Config{ rootPatterns, typeClassRoots, rootClasses, rootInstances } hieFiles =
   let 
