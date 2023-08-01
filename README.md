@@ -85,6 +85,18 @@ src/Dhall/TH.hs:196: toNestedHaskellType
 (Please note these warnings are just for demonstration and not necessarily weeds
 in the Dhall project).
 
+## Exit codes
+
+Weeder emits the following failing exit codes:
+
+| Exit code | Cause |
+| --- | --- |
+| 228 | One or more weeds found |
+|  1  | Generic failing exit code |
+|  2  | Failure to read HIE file due to GHC version mismatch |
+|  3  | Failure to parse config file |
+|  4  | No HIE files found |
+
 # Tips
 
 - You may want to add `^Paths_.*` to the roots in `weeder.toml` to ignore the
