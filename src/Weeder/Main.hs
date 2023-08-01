@@ -5,18 +5,21 @@
 {-# language OverloadedStrings #-}
 {-# language LambdaCase #-}
 {-# language RecordWildCards #-}
+{-# language GeneralisedNewtypeDeriving #-}
+{-# language PatternSynonyms #-}
 
 -- | This module provides an entry point to the Weeder executable.
 
 module Weeder.Main ( main, mainWithConfig, getHieFiles, runWeeder, Weed(..), formatWeed ) where
 
 -- base
+import Control.Exception ( Exception, throwIO, Handler (Handler), catches )
 import Control.Monad ( guard, unless, when )
 import Data.Foldable
 import Data.Function ((&))
 import Data.List ( isSuffixOf, sortOn )
 import Data.Version ( showVersion )
-import System.Exit ( ExitCode(..), exitWith )
+import System.Exit ( ExitCode(..), exitWith, exitSuccess )
 import System.IO ( stderr, hPutStrLn, hPrint )
 
 -- containers
@@ -59,11 +62,36 @@ import Weeder.Config
 import Paths_weeder (version)
 
 
-exitHieVersionFailure, exitConfigFailure, exitWeedsFound, exitNoHieFilesFailure :: ExitCode
-exitHieVersionFailure = ExitFailure 2
-exitConfigFailure = ExitFailure 3
-exitNoHieFilesFailure = ExitFailure 4
-exitWeedsFound = ExitFailure 228
+exitHieVersionFailure, exitConfigFailure, exitWeedsFound, exitNoHieFilesFailure :: WeederException
+exitHieVersionFailure = WeederFailure 2
+exitConfigFailure = WeederFailure 3
+exitNoHieFilesFailure = WeederFailure 4
+exitWeedsFound = WeederFailure 228
+
+
+-- | We wrap ExitCode in this to enforce our own exit codes.
+newtype WeederException = WeederException ExitCode
+  deriving (Show, Exception)
+
+
+pattern WeederFailure :: Int -> WeederException
+pattern WeederFailure a = WeederException (ExitFailure a)
+
+
+exitWeeder :: WeederException -> IO a
+exitWeeder = throwIO
+
+
+handleWeeder :: IO a -> IO a
+handleWeeder a = catches a handlers
+  where
+    handlers =
+      [ Handler handleWeederException
+      , Handler handleExitCode
+      ]
+    handleWeederException (WeederException e) = exitWith e
+    handleExitCode (ExitFailure _) = exitWith (ExitFailure 1)
+    handleExitCode ExitSuccess = exitSuccess
 
 
 data CLIArguments = CLIArguments
@@ -129,7 +157,7 @@ formatWeed Weed{..} =
 
 -- | Parse command line arguments and into a 'Config' and run 'mainWithConfig'.
 main :: IO ()
-main = do
+main = handleWeeder do
   CLIArguments{..} <-
     execParser $
       info (parseCLIArguments <**> helper <**> versionP) mempty
@@ -147,10 +175,10 @@ main = do
   where
     handleConfigError e = do
       hPrint stderr e
-      exitWith exitConfigFailure
+      exitWeeder exitConfigFailure
 
-    decodeConfig noDefaultFields = 
-      if noDefaultFields 
+    decodeConfig noDefaultFields =
+      if noDefaultFields
         then fmap (TOML.decodeWith decodeNoDefaults) . T.readFile
         else TOML.decodeFile
 
@@ -166,7 +194,7 @@ main = do
 -- This will recursively find all files with the given extension in the given directories, perform
 -- analysis, and report all unused definitions according to the 'Config'.
 mainWithConfig :: String -> [FilePath] -> Bool -> Config -> IO ()
-mainWithConfig hieExt hieDirectories requireHsFiles weederConfig = do
+mainWithConfig hieExt hieDirectories requireHsFiles weederConfig = handleWeeder do
   hieFiles <-
     getHieFiles hieExt hieDirectories requireHsFiles
 
@@ -174,15 +202,15 @@ mainWithConfig hieExt hieDirectories requireHsFiles weederConfig = do
     hPutStrLn stderr $
       "No HIE files found: check that the directory is correct " ++
       "and that the -fwrite-ide-info compilation flag is set."
-    exitWith exitNoHieFilesFailure
+    exitWeeder exitNoHieFilesFailure
 
-  let 
-    (weeds, _) = 
+  let
+    (weeds, _) =
       runWeeder weederConfig hieFiles
-    
+
   mapM_ (putStrLn . formatWeed) weeds
 
-  unless (null weeds) $ exitWith exitWeedsFound
+  unless (null weeds) $ exitWeeder exitWeedsFound
 
 
 -- | Find and read all .hie files in the given directories according to the given parameters,
@@ -222,8 +250,8 @@ getHieFiles hieExt hieDirectories requireHsFiles = do
 -- 'formatWeed', and the final 'Analysis'.
 runWeeder :: Config -> [HieFile] -> ([Weed], Analysis)
 runWeeder weederConfig@Config{ rootPatterns, typeClassRoots, rootClasses, rootInstances } hieFiles =
-  let 
-    analysis = 
+  let
+    analysis =
       execState ( analyseHieFiles weederConfig hieFiles ) emptyAnalysis
 
     roots =
@@ -346,7 +374,7 @@ readCompatibleHieFileOrExit nameCache path = do
                <> show v
       putStrLn $ "    weeder must be built with the same GHC version"
                <> " as the project it is used on"
-      exitWith exitHieVersionFailure
+      exitWeeder exitHieVersionFailure
 
 
 infixr 5 ==>
