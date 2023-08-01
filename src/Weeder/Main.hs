@@ -172,7 +172,7 @@ mainWithConfig hieExt hieDirectories requireHsFiles weederConfig = do
 
   when (null hieFiles) do
     hPutStrLn stderr $
-      "No .hie files found: check that the directory is correct " ++
+      "No HIE files found: check that the directory is correct " ++
       "and that the -fwrite-ide-info compilation flag is set."
     exitWith exitNoHieFilesFailure
 
