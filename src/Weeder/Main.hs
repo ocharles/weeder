@@ -11,7 +11,7 @@
 module Weeder.Main ( main, mainWithConfig, getHieFiles, runWeeder, Weed(..), formatWeed ) where
 
 -- base
-import Control.Monad ( guard, unless )
+import Control.Monad ( guard, unless, when )
 import Data.Foldable
 import Data.Function ((&))
 import Data.List ( isSuffixOf, sortOn )
@@ -59,9 +59,10 @@ import Weeder.Config
 import Paths_weeder (version)
 
 
-exitHieVersionFailure, exitConfigFailure, exitWeedsFound :: ExitCode
+exitHieVersionFailure, exitConfigFailure, exitWeedsFound, exitNoHieFilesFailure :: ExitCode
 exitHieVersionFailure = ExitFailure 2
 exitConfigFailure = ExitFailure 3
+exitNoHieFilesFailure = ExitFailure 4
 exitWeedsFound = ExitFailure 228
 
 
@@ -168,6 +169,12 @@ mainWithConfig :: String -> [FilePath] -> Bool -> Config -> IO ()
 mainWithConfig hieExt hieDirectories requireHsFiles weederConfig = do
   hieFiles <-
     getHieFiles hieExt hieDirectories requireHsFiles
+
+  when (null hieFiles) do
+    hPutStrLn stderr $
+      "No .hie files found: check that the directory is correct " ++
+      "and that the -fwrite-ide-info compilation flag is set."
+    exitWith exitNoHieFilesFailure
 
   let 
     (weeds, _) = 

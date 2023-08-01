@@ -75,8 +75,6 @@ discoverIntegrationTests = do
 -- Also creates a dotfile containing the dependency graph as seen by Weeder
 integrationTestOutput :: FilePath -> IO String
 integrationTestOutput hieDirectory = do
-  isEmpty <- not . any (".hie" `isExtensionOf`) <$> listDirectory hieDirectory
-  when isEmpty $ fail "No .hie files found in directory, this is probably unintended"
   hieFiles <- Weeder.Main.getHieFiles ".hie" [hieDirectory] True
   weederConfig <- TOML.decodeFile configExpr >>= either throwIO pure
   let (weeds, analysis) = Weeder.Main.runWeeder weederConfig hieFiles
