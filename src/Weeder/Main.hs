@@ -5,22 +5,20 @@
 {-# language OverloadedStrings #-}
 {-# language LambdaCase #-}
 {-# language RecordWildCards #-}
-{-# language GeneralisedNewtypeDeriving #-}
-{-# language PatternSynonyms #-}
 
 -- | This module provides an entry point to the Weeder executable.
 
 module Weeder.Main ( main, mainWithConfig, getHieFiles, runWeeder, Weed(..), formatWeed ) where
 
 -- base
-import Control.Exception ( Exception, throwIO, Handler (Handler), catches )
+import Control.Exception ( Exception, throwIO, Handler (Handler), catches, displayException )
 import Control.Monad ( guard, unless, when )
 import Data.Foldable
 import Data.Function ((&))
 import Data.List ( isSuffixOf, sortOn )
 import Data.Version ( showVersion )
 import System.Exit ( ExitCode(..), exitWith, exitSuccess )
-import System.IO ( stderr, hPutStrLn, hPrint )
+import System.IO ( stderr, hPutStrLn )
 
 -- containers
 import qualified Data.Map.Strict as Map
@@ -62,36 +60,61 @@ import Weeder.Config
 import Paths_weeder (version)
 
 
-exitHieVersionFailure, exitConfigFailure, exitWeedsFound, exitNoHieFilesFailure :: WeederException
-exitHieVersionFailure = WeederFailure 2
-exitConfigFailure = WeederFailure 3
-exitNoHieFilesFailure = WeederFailure 4
-exitWeedsFound = WeederFailure 228
+-- | We use this to enforce our own exit codes.
+data WeederException 
+  = ExitNoHieFilesFailure
+  | ExitHieVersionFailure 
+      FilePath -- ^ Path to HIE file
+      Integer -- ^ HIE file's header version
+  | ExitConfigFailure
+      String -- ^ Error message
+  | ExitWeedsFound
+  deriving Show
 
 
--- | We wrap ExitCode in this to enforce our own exit codes.
-newtype WeederException = WeederException ExitCode
-  deriving (Show, Exception)
+weederExitCode :: WeederException -> ExitCode
+weederExitCode = \case
+  ExitWeedsFound -> ExitFailure 228
+  ExitHieVersionFailure _ _ -> ExitFailure 2
+  ExitConfigFailure _ -> ExitFailure 3
+  ExitNoHieFilesFailure -> ExitFailure 4
 
 
-pattern WeederFailure :: Int -> WeederException
-pattern WeederFailure a = WeederException (ExitFailure a)
+instance Exception WeederException where
+  displayException = \case
+    ExitNoHieFilesFailure -> noHieFilesFoundMessage
+    ExitHieVersionFailure path v -> hieVersionMismatchMessage path v
+    ExitConfigFailure s -> s
+    ExitWeedsFound -> mempty
+    where
+
+      noHieFilesFoundMessage =  
+        "No HIE files found: check that the directory is correct "
+        <> "and that the -fwrite-ide-info compilation flag is set."
+
+      hieVersionMismatchMessage path v = unlines
+        [ "incompatible hie file: " <> path
+        , "    this version of weeder was compiled with GHC version "
+          <> show hieVersion
+        , "    the hie files in this project were generated with GHC version "
+          <> show v
+        , "    weeder must be built with the same GHC version"
+          <> " as the project it is used on"
+        ]
 
 
-exitWeeder :: WeederException -> IO a
-exitWeeder = throwIO
-
-
-handleWeeder :: IO a -> IO a
-handleWeeder a = catches a handlers
+handleExits :: IO a -> IO a
+handleExits a = catches a handlers
   where
     handlers =
       [ Handler handleWeederException
       , Handler handleExitCode
       ]
-    handleWeederException (WeederException e) = exitWith e
     handleExitCode (ExitFailure _) = exitWith (ExitFailure 1)
     handleExitCode ExitSuccess = exitSuccess
+    handleWeederException w = do
+      hPutStrLn stderr (displayException w)
+      exitWith (weederExitCode w)
 
 
 data CLIArguments = CLIArguments
@@ -156,8 +179,10 @@ formatWeed Weed{..} =
 
 
 -- | Parse command line arguments and into a 'Config' and run 'mainWithConfig'.
+--
+-- Exits with one of the listed Weeder exit codes on failure.
 main :: IO ()
-main = handleWeeder do
+main = handleExits do
   CLIArguments{..} <-
     execParser $
       info (parseCLIArguments <**> helper <**> versionP) mempty
@@ -170,12 +195,11 @@ main = handleWeeder do
     writeFile configPath (configToToml defaultConfig)
 
   decodeConfig noDefaultFields configPath
-    >>= either handleConfigError pure
+    >>= either throwConfigError pure
     >>= mainWithConfig hieExt hieDirectories requireHsFiles
   where
-    handleConfigError e = do
-      hPrint stderr e
-      exitWeeder exitConfigFailure
+    throwConfigError e =
+      throwIO $ ExitConfigFailure (show e)
 
     decodeConfig noDefaultFields =
       if noDefaultFields
@@ -194,15 +218,11 @@ main = handleWeeder do
 -- This will recursively find all files with the given extension in the given directories, perform
 -- analysis, and report all unused definitions according to the 'Config'.
 mainWithConfig :: String -> [FilePath] -> Bool -> Config -> IO ()
-mainWithConfig hieExt hieDirectories requireHsFiles weederConfig = handleWeeder do
+mainWithConfig hieExt hieDirectories requireHsFiles weederConfig = do
   hieFiles <-
     getHieFiles hieExt hieDirectories requireHsFiles
 
-  when (null hieFiles) do
-    hPutStrLn stderr $
-      "No HIE files found: check that the directory is correct " ++
-      "and that the -fwrite-ide-info compilation flag is set."
-    exitWeeder exitNoHieFilesFailure
+  when (null hieFiles) $ throwIO ExitNoHieFilesFailure
 
   let
     (weeds, _) =
@@ -210,7 +230,7 @@ mainWithConfig hieExt hieDirectories requireHsFiles weederConfig = handleWeeder 
 
   mapM_ (putStrLn . formatWeed) weeds
 
-  unless (null weeds) $ exitWeeder exitWeedsFound
+  unless (null weeds) $ throwIO ExitWeedsFound
 
 
 -- | Find and read all .hie files in the given directories according to the given parameters,
@@ -366,15 +386,8 @@ readCompatibleHieFileOrExit nameCache path = do
   case res of
     Right HieFileResult{ hie_file_result } ->
       return hie_file_result
-    Left ( v, _ghcVersion ) -> do
-      putStrLn $ "incompatible hie file: " <> path
-      putStrLn $ "    this version of weeder was compiled with GHC version "
-               <> show hieVersion
-      putStrLn $ "    the hie files in this project were generated with GHC version "
-               <> show v
-      putStrLn $ "    weeder must be built with the same GHC version"
-               <> " as the project it is used on"
-      exitWeeder exitHieVersionFailure
+    Left ( v, _ghcVersion ) ->
+      throwIO $ ExitHieVersionFailure path v
 
 
 infixr 5 ==>
