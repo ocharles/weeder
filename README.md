@@ -103,7 +103,9 @@ for syntax extensions as weeds. For example, `Num` and `IsString` classes might 
 flagged as weeds if they are only used for overloaded literal syntax (that is,
 the `fromInteger` and `fromString` methods).
 
-You can add instances of specific type classes as roots with the `root-classes` field, or toggle whether Weeder considers all type class instances as roots with the `type-class-roots` configuration option.
+You can add instances of specific type classes as roots with the `root-classes` 
+field, or toggle whether Weeder considers all type class instances as roots with 
+the `type-class-roots` configuration option.
 
 ## Template Haskell
 
