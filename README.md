@@ -128,6 +128,12 @@ You can add instances of specific type classes as roots with the `root-classes`
 field, or toggle whether Weeder considers all type class instances as roots with 
 the `type-class-roots` configuration option.
 
+## Type families
+
+Weeder cannot yet analyse uses of type family instances. For this reason type
+family instances will be marked as implicit roots if analysis of types is
+enabled via `unused-types`.
+
 ## Template Haskell
 
 Weeder is currently unable to parse the result of a Template Haskell splice. If
