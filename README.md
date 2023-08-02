@@ -64,10 +64,8 @@ good starting point - specifying that `main` is a root. Weeder currently doesn't
 add all exported functions as roots automatically but in many cases `main` from a
 test suite could be a good workaround for that
 
-`type-class-roots` configures whether or not Weeder should consider anything in
-a type class instance as a root. Weeder is currently unable to add dependency
-edges into type class instances, and without this flag may produce false
-positives. It's recommended to initially set this to `True`:
+`type-class-roots` configures whether or not Weeder should consider all instances
+of type classes as roots. Defaults to `false`.
 
 ``` toml
 roots = [ "^Main.main$" ]
