@@ -85,6 +85,31 @@ src/Dhall/TH.hs:196: toNestedHaskellType
 (Please note these warnings are just for demonstration and not necessarily weeds
 in the Dhall project).
 
+## Configuration options
+
+| Name             | Default value                        | Description |
+| ---------------- | ------------------------------------ | --- |
+| roots            | `[ "Main.main", "^Paths_weeder.*" ]` | Any declarations matching these regular expressions will be considered as alive. |
+| type-class-roots | `false`                              | Consider all instances of type classes as roots. Overrides `root-classes` and `root-instances`. |
+| root-classes     | `[ "IsString", "IsList" ]`           | Instances in matching modules of matching classes will be considered as roots. Note that this does not mark the type class declarations themselves as roots, so a type class with no instances may still show up as a weed. |
+| root-instances   | `[]`                                 | Instances in matching modules with matching types will be considered as roots. |
+| unused-types     | `false`                              | Enable analysis of unused types. |
+
+`root-classes` and `root-instances` accept both TOML tables and string literals. String
+literals are interpreted as leaving `module` unspecified, therefore matching on all 
+modules. See the following example from the test suite:
+
+``` toml
+root-instances = [ { module = "Spec.ConfigInstanceModules.Module1", instance = "Bounded T" }
+                 , "Read T" 
+                 , { module = "Spec.ConfigInstanceModules.Module3" }
+                 ]
+
+root-classes = [ { class = "Enum" }
+               , { module = "Spec.ConfigInstanceModules.Module2", class = "Show" } 
+               ]
+```
+
 ## Exit codes
 
 Weeder emits the following failing exit codes:
