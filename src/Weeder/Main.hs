@@ -103,6 +103,8 @@ instance Exception WeederException where
         ]
 
 
+-- | Override failing 'ExitCode' exceptions with 1, and convert any
+-- 'WeederException' to its corresponding 'ExitCode'.
 handleExits :: IO a -> IO a
 handleExits a = catches a handlers
   where
@@ -196,7 +198,7 @@ main = handleExits do
 
   decodeConfig noDefaultFields configPath
     >>= either throwConfigError pure
-    >>= mainWithConfig hieExt hieDirectories requireHsFiles
+    >>= mainWithConfig' hieExt hieDirectories requireHsFiles
   where
     throwConfigError e =
       throwIO $ ExitConfigFailure (show e)
@@ -217,8 +219,16 @@ main = handleExits do
 --
 -- This will recursively find all files with the given extension in the given directories, perform
 -- analysis, and report all unused definitions according to the 'Config'.
+--
+-- Exits with one of the listed Weeder exit codes on failure.
 mainWithConfig :: String -> [FilePath] -> Bool -> Config -> IO ()
-mainWithConfig hieExt hieDirectories requireHsFiles weederConfig = do
+mainWithConfig hieExt hieDirectories requireHsFiles = 
+  handleExits . mainWithConfig' hieExt hieDirectories requireHsFiles
+
+
+-- | 'mainWithConfig' without 'WeederException' handling
+mainWithConfig' :: String -> [FilePath] -> Bool -> Config -> IO ()
+mainWithConfig' hieExt hieDirectories requireHsFiles weederConfig = do
   hieFiles <-
     getHieFiles hieExt hieDirectories requireHsFiles
 
