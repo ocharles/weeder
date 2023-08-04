@@ -2,4 +2,4 @@ roots = []
 
 type-class-roots = false
 
-root-classes = [ "Show", "Ord", "Bar" ]
+root-instances = [ {class = "Show"}, {class = "Ord"}, {class = "Bar"} ]
