@@ -1,6 +1,6 @@
 root-instances = [ { module = "Spec.ConfigInstanceModules.Module1", instance = "Bounded T" }
                  , "Read T" 
                  , { module = "Spec.ConfigInstanceModules.Module3" }
-                 , { class = "Enum" }
-                 , { module = "Spec.ConfigInstanceModules.Module2", class = "Show" } 
+                 , { class = '\.Enum$' }
+                 , { module = "Spec.ConfigInstanceModules.Module2", class = '\.Show$' } 
                  ]

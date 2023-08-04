@@ -76,7 +76,7 @@ defaultConfig :: Config
 defaultConfig = Config
   { rootPatterns = Set.fromList [ "Main.main", "^Paths_.*"]
   , typeClassRoots = False
-  , rootInstances = Set.fromList [ ClassOnly "IsString", ClassOnly "IsList" ]
+  , rootInstances = Set.fromList [ ClassOnly "\\.IsString$", ClassOnly "\\.IsList$" ]
   , unusedTypes = False
   }
 

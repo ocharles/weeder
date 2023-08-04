@@ -174,7 +174,7 @@ mainWithConfig hieExt hieDirectories requireHsFiles weederConfig@Config{ rootPat
       Set.filter
         ( \d ->
             any
-              ( ( moduleNameString ( moduleName ( declModule d ) ) <> "." <> occNameString ( declOccName d ) ) =~ )
+              ( displayDeclaration d =~ )
               rootPatterns
         )
         ( allDeclarations analysis )
@@ -228,12 +228,17 @@ mainWithConfig hieExt hieDirectories requireHsFiles weederConfig@Config{ rootPat
           filteredInstances :: Set (Maybe String)
           filteredInstances = 
             Set.map instancePattern 
-            . Set.filter (maybe True (occNameString c =~) . classPattern) 
+            . Set.filter (maybe True (displayDeclaration c =~) . classPattern) 
             . Set.filter (maybe True modulePathMatches . modulePattern) 
             $ rootInstances
 
           modulePathMatches :: String -> Bool
           modulePathMatches p = maybe False (=~ p) (Map.lookup ( declModule d ) modulePaths)
+
+
+displayDeclaration :: Declaration -> String
+displayDeclaration d = 
+  moduleNameString ( moduleName ( declModule d ) ) <> "." <> occNameString ( declOccName d )
 
 
 showWeed :: FilePath -> RealSrcLoc -> Declaration -> String
