@@ -4,7 +4,6 @@
 {-# language RecordWildCards #-}
 {-# language LambdaCase #-}
 {-# language PatternSynonyms #-}
-{-# language GeneralisedNewtypeDeriving #-}
 
 module Weeder.Config 
   ( -- * Config
@@ -13,17 +12,13 @@ module Weeder.Config
   , decodeNoDefaults
   , defaultConfig 
     -- * Marking instances as roots
-  , InstancePattern(..)
+  , InstancePattern
   , modulePattern
   , instancePattern
   , classPattern
   , pattern InstanceOnly
   , pattern ClassOnly
   , pattern ModuleOnly
-  , pattern InstanceAndModule
-  , pattern InstanceAndClass
-  , pattern ClassAndModule
-  , pattern InstanceClassAndModule
   ) 
    where
 
@@ -35,9 +30,6 @@ import Data.List (intersperse, intercalate)
 -- containers
 import Data.Set ( Set )
 import qualified Data.Set as Set
-
--- these
-import Data.These ( These( This, That, These ) )
 
 -- toml-reader
 import qualified TOML
@@ -60,56 +52,24 @@ data Config = Config
   } deriving (Eq, Show)
 
 
-type PatternWith = These String
+-- | Construct via InstanceOnly, ClassOnly or ModuleOnly, 
+-- and combine with the Semigroup instance
+data InstancePattern = InstancePattern
+  { instancePattern :: Maybe String
+  , classPattern :: Maybe String
+  , modulePattern :: Maybe String
+  } deriving (Eq, Show, Ord)
 
-type PatternWithModule = PatternWith String
 
--- Note that the Semigroup instance will merge ClassOnly "a" and ClassOnly "b" into
--- ClassOnly "ab" - this is probably not what one would want. It's still useful
--- for scenarios like ClassOnly "a" <> ModuleOnly "b" = ClassAndModule "a" "b"
-newtype InstancePattern = InstancePattern (PatternWith PatternWithModule)
-  deriving (Eq, Show, Ord, Semigroup)
+instance Semigroup InstancePattern where
+  InstancePattern i c m <> InstancePattern i' c' m' = 
+    InstancePattern (i <> i') (c <> c') (m <> m')
+
 
 pattern InstanceOnly, ClassOnly, ModuleOnly :: String -> InstancePattern
-pattern InstanceOnly t = InstancePattern (This t)
-pattern ClassOnly c = InstancePattern (That (This c))
-pattern ModuleOnly m = InstancePattern (That (That m))
-
-pattern InstanceAndModule, InstanceAndClass, ClassAndModule :: String -> String -> InstancePattern
-pattern InstanceAndModule t m = InstancePattern (These t (That m))
-pattern InstanceAndClass t c = InstancePattern (These t (This c))
-pattern ClassAndModule c m = InstancePattern (That (These c m))
-
-pattern InstanceClassAndModule :: String -> String -> String -> InstancePattern
-pattern InstanceClassAndModule t c m = InstancePattern (These t (These c m))
-{-# complete InstanceOnly, ClassOnly, ModuleOnly, InstanceAndModule, InstanceAndClass, ClassAndModule, InstanceClassAndModule #-}
-
-
-modulePattern :: InstancePattern -> Maybe String
-modulePattern = \case
-  ModuleOnly m -> Just m
-  InstanceAndModule _ m -> Just m
-  ClassAndModule _ m -> Just m
-  InstanceClassAndModule _ _ m -> Just m
-  _ -> Nothing
-
-
-instancePattern :: InstancePattern -> Maybe String
-instancePattern = \case
-  InstanceOnly t -> Just t
-  InstanceAndModule t _ -> Just t
-  InstanceAndClass t _ -> Just t
-  InstanceClassAndModule t _ _ -> Just t
-  _ -> Nothing
-
-
-classPattern :: InstancePattern -> Maybe String
-classPattern = \case
-  ClassOnly c -> Just c
-  InstanceAndClass _ c -> Just c
-  ClassAndModule c _ -> Just c
-  InstanceClassAndModule _ c _ -> Just c
-  _ -> Nothing
+pattern InstanceOnly t = InstancePattern (Just t) Nothing Nothing
+pattern ClassOnly c = InstancePattern Nothing (Just c) Nothing
+pattern ModuleOnly m = InstancePattern Nothing Nothing (Just m)
 
 
 defaultConfig :: Config
