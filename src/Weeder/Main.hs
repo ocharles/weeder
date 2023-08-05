@@ -141,7 +141,7 @@ main = do
 -- This will recursively find all files with the given extension in the given directories, perform
 -- analysis, and report all unused definitions according to the 'Config'.
 mainWithConfig :: String -> [FilePath] -> Bool -> Config -> IO (ExitCode, Analysis)
-mainWithConfig hieExt hieDirectories requireHsFiles weederConfig@Config{ rootPatterns, typeClassRoots, rootInstances, rootClasses } = do
+mainWithConfig hieExt hieDirectories requireHsFiles weederConfig@Config{ rootPatterns, typeClassRoots, rootInstances } = do
   hieFilePaths <-
     concat <$>
       traverse ( getFilesIn hieExt )
@@ -174,7 +174,7 @@ mainWithConfig hieExt hieDirectories requireHsFiles weederConfig@Config{ rootPat
       Set.filter
         ( \d ->
             any
-              ( ( moduleNameString ( moduleName ( declModule d ) ) <> "." <> occNameString ( declOccName d ) ) =~ )
+              ( displayDeclaration d =~ )
               rootPatterns
         )
         ( allDeclarations analysis )
@@ -218,19 +218,27 @@ mainWithConfig hieExt hieDirectories requireHsFiles weederConfig@Config{ rootPat
 
       ModuleRoot _ -> True
 
-      InstanceRoot d c -> typeClassRoots || matchingClass || matchingType
+      InstanceRoot d c -> typeClassRoots || matchingType
         where
-          matchingClass = any (maybe True (occNameString c =~)) (filterOnModule rootClasses)
+          matchingType = 
+            let mt = Map.lookup d prettyPrintedType
+                matches = maybe (const False) (=~) mt
+            in any (maybe True matches) filteredInstances
 
-          matchingType = case Map.lookup d prettyPrintedType of
-            Just t -> any (maybe True (t =~)) (filterOnModule rootInstances)
-            Nothing -> False
-
-          filterOnModule :: Set PatternWithModule -> Set (Maybe String)
-          filterOnModule = Set.map mainPattern . Set.filter (maybe True modulePathMatches . modulePattern)
+          filteredInstances :: Set (Maybe String)
+          filteredInstances = 
+            Set.map instancePattern 
+            . Set.filter (maybe True (displayDeclaration c =~) . classPattern) 
+            . Set.filter (maybe True modulePathMatches . modulePattern) 
+            $ rootInstances
 
           modulePathMatches :: String -> Bool
           modulePathMatches p = maybe False (=~ p) (Map.lookup ( declModule d ) modulePaths)
+
+
+displayDeclaration :: Declaration -> String
+displayDeclaration d = 
+  moduleNameString ( moduleName ( declModule d ) ) <> "." <> occNameString ( declOccName d )
 
 
 showWeed :: FilePath -> RealSrcLoc -> Declaration -> String

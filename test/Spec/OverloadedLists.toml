@@ -1,6 +1,6 @@
 roots = [ "Spec.OverloadedLists.OverloadedLists.root"
         , "Spec.OverloadedLists.OverloadedLists.BetterList" ]
 
-root-classes = []
+root-instances = []
 
 type-class-roots = false
