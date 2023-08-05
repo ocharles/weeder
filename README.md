@@ -116,6 +116,7 @@ Weeder emits the following failing exit codes:
 
 | Exit code | Cause |
 | --- | --- |
+| 0 | No weeds were found |
 | 228 | One or more weeds found |
 |  1  | Generic failing exit code |
 |  2  | Failure to read HIE file due to GHC version mismatch |
