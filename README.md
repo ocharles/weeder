@@ -112,11 +112,11 @@ root-classes = [ { class = "Enum" }
 
 ## Exit codes
 
-Weeder emits the following failing exit codes:
+Weeder emits the following exit codes:
 
 | Exit code | Cause |
 | --- | --- |
-| 0 | No weeds were found |
+|  0  | No weeds were found |
 | 228 | One or more weeds found |
 |  1  | Generic failing exit code |
 |  2  | Failure to read HIE file due to GHC version mismatch |
