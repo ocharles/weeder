@@ -11,13 +11,13 @@
 module Weeder.Main ( main, mainWithConfig, getHieFiles, runWeeder, Weed(..), formatWeed ) where
 
 -- base
-import Control.Exception ( Exception, throwIO, Handler (Handler), catches, displayException )
+import Control.Exception ( Exception, throwIO, displayException, handle )
 import Control.Monad ( guard, unless, when )
 import Data.Foldable
 import Data.Function ((&))
 import Data.List ( isSuffixOf, sortOn )
 import Data.Version ( showVersion )
-import System.Exit ( ExitCode(..), exitWith, exitSuccess )
+import System.Exit ( ExitCode(..), exitWith )
 import System.IO ( stderr, hPutStrLn )
 
 -- containers
@@ -60,7 +60,7 @@ import Weeder.Config
 import Paths_weeder (version)
 
 
--- | We use this to enforce our own exit codes.
+-- | Each exception corresponds to an exit code.
 data WeederException 
   = ExitNoHieFilesFailure
   | ExitHieVersionFailure 
@@ -103,20 +103,12 @@ instance Exception WeederException where
         ]
 
 
--- | Override failing 'ExitCode' exceptions with 1, and convert any
--- 'WeederException' to its corresponding 'ExitCode'.
-handleExits :: IO a -> IO a
-handleExits a = catches a handlers
-  where
-    handlers =
-      [ Handler handleWeederException
-      , Handler handleExitCode
-      ]
-    handleExitCode (ExitFailure _) = exitWith (ExitFailure 1)
-    handleExitCode ExitSuccess = exitSuccess
-    handleWeederException w = do
-      hPutStrLn stderr (displayException w)
-      exitWith (weederExitCode w)
+-- | Convert 'WeederException' to the corresponding 'ExitCode' and emit an error 
+-- message to stderr
+handleWeederException :: IO a -> IO a
+handleWeederException = handle \w -> do
+  hPutStrLn stderr (displayException w)
+  exitWith (weederExitCode w)
 
 
 data CLIArguments = CLIArguments
@@ -184,7 +176,7 @@ formatWeed Weed{..} =
 --
 -- Exits with one of the listed Weeder exit codes on failure.
 main :: IO ()
-main = handleExits do
+main = handleWeederException do
   CLIArguments{..} <-
     execParser $
       info (parseCLIArguments <**> helper <**> versionP) mempty
@@ -198,7 +190,7 @@ main = handleExits do
 
   decodeConfig noDefaultFields configPath
     >>= either throwConfigError pure
-    >>= mainWithConfig' hieExt hieDirectories requireHsFiles
+    >>= mainWithConfig hieExt hieDirectories requireHsFiles
   where
     throwConfigError e =
       throwIO $ ExitConfigFailure (show e)
@@ -222,13 +214,7 @@ main = handleExits do
 --
 -- Exits with one of the listed Weeder exit codes on failure.
 mainWithConfig :: String -> [FilePath] -> Bool -> Config -> IO ()
-mainWithConfig hieExt hieDirectories requireHsFiles = 
-  handleExits . mainWithConfig' hieExt hieDirectories requireHsFiles
-
-
--- | 'mainWithConfig' without 'WeederException' handling
-mainWithConfig' :: String -> [FilePath] -> Bool -> Config -> IO ()
-mainWithConfig' hieExt hieDirectories requireHsFiles weederConfig = do
+mainWithConfig hieExt hieDirectories requireHsFiles weederConfig = handleWeederException do
   hieFiles <-
     getHieFiles hieExt hieDirectories requireHsFiles
 
