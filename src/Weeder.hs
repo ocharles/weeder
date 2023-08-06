@@ -119,7 +119,7 @@ import Control.Monad.Trans.Maybe ( runMaybeT )
 import Control.Monad.Trans.Reader ( runReaderT )
 
 -- weeder
-import Weeder.Config ( Config( Config, typeClassRoots, unusedTypes ) )
+import Weeder.Config ( Config, ConfigType( Config, typeClassRoots, unusedTypes ) )
 
 
 data Declaration =

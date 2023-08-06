@@ -43,7 +43,7 @@ import GHC.Types.Name ( occNameString )
 import GHC.Types.SrcLoc ( RealSrcLoc, realSrcSpanStart, srcLocLine )
 
 -- regex-tdfa
-import Text.Regex.TDFA ( (=~) )
+import Text.Regex.TDFA ( matchTest )
 
 -- optparse-applicative
 import Options.Applicative
@@ -278,7 +278,7 @@ runWeeder weederConfig@Config{ rootPatterns, typeClassRoots, rootInstances } hie
       Set.filter
         ( \d ->
             any
-              ( displayDeclaration d =~ )
+              (`matchTest` displayDeclaration d)
               rootPatterns
         )
         ( outputableDeclarations analysis )
@@ -329,18 +329,16 @@ runWeeder weederConfig@Config{ rootPatterns, typeClassRoots, rootInstances } hie
         where
           matchingType = 
             let mt = Map.lookup d prettyPrintedType
-                matches = maybe (const False) (=~) mt
+                matches = maybe (const False) (flip matchTest) mt
             in any (maybe True matches) filteredInstances
 
-          filteredInstances :: Set (Maybe String)
           filteredInstances = 
-            Set.map instancePattern 
-            . Set.filter (maybe True (displayDeclaration c =~) . classPattern) 
-            . Set.filter (maybe True modulePathMatches . modulePattern) 
+            map instancePattern 
+            . filter (maybe True (`matchTest` displayDeclaration c) . classPattern) 
+            . filter (maybe True modulePathMatches . modulePattern) 
             $ rootInstances
 
-          modulePathMatches :: String -> Bool
-          modulePathMatches p = maybe False (=~ p) (Map.lookup ( declModule d ) modulePaths)
+          modulePathMatches p = maybe False (p `matchTest`) (Map.lookup ( declModule d ) modulePaths)
 
 
 displayDeclaration :: Declaration -> String
