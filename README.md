@@ -91,23 +91,19 @@ in the Dhall project).
 | ---------------- | ------------------------------------ | --- |
 | roots            | `[ "Main.main", "^Paths_weeder.*" ]` | Any declarations matching these regular expressions will be considered as alive. |
 | type-class-roots | `false`                              | Consider all instances of type classes as roots. Overrides `root-classes` and `root-instances`. |
-| root-classes     | `[ "IsString", "IsList" ]`           | Instances in matching modules of matching classes will be considered as roots. Note that this does not mark the type class declarations themselves as roots, so a type class with no instances may still show up as a weed. |
-| root-instances   | `[]`                                 | Instances in matching modules with matching types will be considered as roots. |
+| root-instances   | `[ {class = '\.IsString$'}, {class = '\.IsList$'} ]` | Type class instances that match on all specified fields will be considered as roots. Accepts the fields `instance` matching on the pretty-printed type of the instance (visible in the output), `class` matching on its parent class declaration, and `module` matching on the module the instance is in. |
 | unused-types     | `false`                              | Enable analysis of unused types. |
 
-`root-classes` and `root-instances` accept both TOML tables and string literals. String
-literals are interpreted as leaving `module` unspecified, therefore matching on all 
-modules. See the following example from the test suite:
+`root-instances` can also accept string literals as a shorthand for writing a table
+containing only the `instance` field. See the following example from the test suite:
 
 ``` toml
 root-instances = [ { module = "Spec.ConfigInstanceModules.Module1", instance = "Bounded T" }
                  , "Read T" 
                  , { module = "Spec.ConfigInstanceModules.Module3" }
+                 , { class = '\.Enum$' }
+                 , { module = "Spec.ConfigInstanceModules.Module2", class = '\.Show$' }
                  ]
-
-root-classes = [ { class = "Enum" }
-               , { module = "Spec.ConfigInstanceModules.Module2", class = "Show" } 
-               ]
 ```
 
 ## Exit codes
@@ -137,7 +133,7 @@ Weeder emits the following exit codes:
   caught off guard by new configuration options or changes to default values.
 
 - To mark all instances in a module `M` as roots, add `{ module = "^M$" }`
-  to either `root-classes` or `root-instances`.
+  to `root-instances`.
 
 # Limitations
 
@@ -150,7 +146,7 @@ for syntax extensions as weeds. For example, `Num` and `IsString` classes might 
 flagged as weeds if they are only used for overloaded literal syntax (that is,
 the `fromInteger` and `fromString` methods).
 
-You can add instances of specific type classes as roots with the `root-classes` 
+You can add instances of specific type classes as roots with the `root-instances` 
 field, or toggle whether Weeder considers all type class instances as roots with 
 the `type-class-roots` configuration option.
 
