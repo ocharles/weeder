@@ -12,10 +12,12 @@ module Weeder.Main ( main, mainWithConfig, getHieFiles, runWeeder, Weed(..), for
 
 -- base
 import Control.Exception ( Exception, throwIO, displayException, handle )
+import Control.Concurrent ( getChanContents, newChan, writeChan, forkIO )
 import Control.Monad ( guard, unless, when )
 import Data.Foldable
 import Data.Function ((&))
 import Data.List ( isSuffixOf, sortOn )
+import Data.Maybe ( isJust, catMaybes )
 import Data.Version ( showVersion )
 import System.Exit ( ExitCode(..), exitWith )
 import System.IO ( stderr, hPutStrLn )
@@ -37,6 +39,7 @@ import System.FilePath ( isExtensionOf )
 -- ghc
 import GHC.Iface.Ext.Binary ( HieFileResult( HieFileResult, hie_file_result ), readHieFileWithVersion )
 import GHC.Iface.Ext.Types ( HieFile( hie_hs_file, hie_asts ), hieVersion, HieASTs (getAsts) )
+import GHC.Iface.Ext.Utils ( generateReferencesMap )
 import GHC.Unit.Module ( moduleName, moduleNameString )
 import GHC.Types.Name.Cache ( initNameCache, NameCache )
 import GHC.Types.Name ( occNameString )
@@ -48,6 +51,7 @@ import Text.Regex.TDFA ( matchTest )
 import Options.Applicative
 
 -- parallel
+import Control.Parallel (pseq)
 import Control.Parallel.Strategies ( rdeepseq, parMap )
 
 -- text
@@ -60,7 +64,6 @@ import Control.Monad.Trans.State.Strict ( execState )
 import Weeder
 import Weeder.Config
 import Paths_weeder (version)
-import GHC.Iface.Ext.Utils (generateReferencesMap)
 
 
 -- | Each exception corresponds to an exit code.
@@ -234,6 +237,7 @@ mainWithConfig hieExt hieDirectories requireHsFiles weederConfig = handleWeederE
 
 -- | Find and read all .hie files in the given directories according to the given parameters,
 -- exiting if any are incompatible with the current version of GHC.
+-- The .hie files are returned as a lazy stream in the form of a list.
 getHieFiles :: String -> [FilePath] -> Bool -> IO [HieFile]
 getHieFiles hieExt hieDirectories requireHsFiles = do
   hieFilePaths <-
@@ -249,18 +253,26 @@ getHieFiles hieExt hieDirectories requireHsFiles = do
       then getFilesIn ".hs" "./."
       else pure []
 
+  hieFileResultsChan <- newChan
+
   nameCache <-
     initNameCache 'z' []
 
-  hieFileResults <-
-    mapM ( readCompatibleHieFileOrExit nameCache ) hieFilePaths
+  _ <- forkIO do
+    readHieFiles nameCache hieFilePaths hieFileResultsChan hsFilePaths
+    writeChan hieFileResultsChan Nothing
 
-  let
-    hieFileResults' = flip filter hieFileResults \hieFileResult ->
-      let hsFileExists = any ( hie_hs_file hieFileResult `isSuffixOf` ) hsFilePaths
-       in requireHsFiles ==> hsFileExists
+  catMaybes . takeWhile isJust <$> getChanContents hieFileResultsChan
 
-  pure hieFileResults'
+  where
+
+    readHieFiles nameCache hieFilePaths hieFileResultsChan hsFilePaths =
+      for_ hieFilePaths \hieFilePath -> do
+        hieFileResult <-
+          readCompatibleHieFileOrExit nameCache hieFilePath
+        let hsFileExists = any ( hie_hs_file hieFileResult `isSuffixOf` ) hsFilePaths
+        when (requireHsFiles ==> hsFileExists) $
+          writeChan hieFileResultsChan (Just hieFileResult)
 
 
 -- | Run Weeder on the given .hie files with the given 'Config'.
@@ -275,10 +287,20 @@ runWeeder weederConfig@Config{ rootPatterns, typeClassRoots, rootInstances } hie
     rf = generateReferencesMap asts
 
     analyses =
-      parMap rdeepseq (\hf -> execState (analyseHieFile rf weederConfig hf) emptyAnalysis) hieFiles
+      parMap rdeepseq (\hf -> execState (analyseHieFile weederConfig hf) emptyAnalysis) hieFiles
 
-    analysis = 
+    analyseEvidenceUses' = 
+      if typeClassRoots
+        then id
+        else analyseEvidenceUses rf
+
+    analysis1 = 
       foldl' mappend mempty analyses
+
+    -- Evaluating 'analysis1' first allows us to begin analysis 
+    -- while hieFiles is still being read (since rf depends on all hie files)
+    analysis = analysis1 `pseq`
+      analyseEvidenceUses' analysis1
 
     -- We limit ourselves to outputable declarations only rather than all
     -- declarations in the graph. This has a slight performance benefit,

@@ -13,6 +13,7 @@
 module Weeder
   ( -- * Analysis
     Analysis(..)
+  , analyseEvidenceUses
   , analyseHieFile
   , emptyAnalysis
   , outputableDeclarations
@@ -27,7 +28,7 @@ module Weeder
    where
 
 -- algebraic-graphs
-import Algebra.Graph ( Graph, edge, empty, overlay, vertex, stars )
+import Algebra.Graph ( Graph, edge, empty, overlay, vertex, stars, star, overlays )
 import Algebra.Graph.ToGraph ( dfs )
 
 -- base
@@ -112,7 +113,7 @@ import Control.Lens ( (%=) )
 
 -- mtl
 import Control.Monad.State.Class ( MonadState )
-import Control.Monad.Reader.Class ( MonadReader, asks, ask)
+import Control.Monad.Reader.Class ( MonadReader, asks )
 
 -- parallel
 import Control.Parallel.Strategies ( NFData )
@@ -180,14 +181,20 @@ data Analysis =
     , prettyPrintedType :: Map Declaration String
       -- ^ Used to match against the types of instances and to replace the
       -- appearance of declarations in the output
+    , requestedEvidence :: Map Declaration (Set Name)
+      -- ^ Map from declarations to the names containing evidence uses that
+      -- should be followed and treated as dependencies of the declaration.
+      -- We use this to be able to delay analysing evidence uses until later,
+      -- allowing us to begin the rest of the analysis before we have read all
+      -- hie files.
     }
   deriving
     ( Generic, NFData )
 
 
 instance Semigroup Analysis where
-  (<>) (Analysis a1 b1 c1 d1 e1 f1) (Analysis a2 b2 c2 d2 e2 f2)= 
-    Analysis (a1 `overlay` a2) (Map.unionWith (<>) b1 b2) (c1 <> c2) (Map.unionWith (<>) d1 d2) (e1 <> e2) (f1 <> f2)
+  (<>) (Analysis a1 b1 c1 d1 e1 f1 g1) (Analysis a2 b2 c2 d2 e2 f2 g2)= 
+    Analysis (a1 `overlay` a2) (Map.unionWith (<>) b1 b2) (c1 <> c2) (Map.unionWith (<>) d1 d2) (e1 <> e2) (f1 <> f2) (Map.unionWith (<>) g1 g2)
 
 
 instance Monoid Analysis where
@@ -198,13 +205,12 @@ data AnalysisInfo =
   AnalysisInfo
     { currentHieFile :: HieFile
     , weederConfig :: Config
-    , refMap :: RefMap TypeIndex
     }
 
 
 -- | The empty analysis - the result of analysing zero @.hie@ files.
 emptyAnalysis :: Analysis
-emptyAnalysis = Analysis empty mempty mempty mempty mempty mempty
+emptyAnalysis = Analysis empty mempty mempty mempty mempty mempty mempty
 
 
 -- | A root for reachability analysis.
@@ -261,9 +267,9 @@ initialGraph info =
 
 
 -- | Incrementally update 'Analysis' with information in a 'HieFile'.
-analyseHieFile :: (MonadState Analysis m) => RefMap TypeIndex -> Config -> HieFile -> m ()
-analyseHieFile rf weederConfig hieFile =
-  let info = AnalysisInfo hieFile weederConfig rf
+analyseHieFile :: (MonadState Analysis m) => Config -> HieFile -> m ()
+analyseHieFile weederConfig hieFile =
+  let info = AnalysisInfo hieFile weederConfig
    in runReaderT analyseHieFile' info
 
 
@@ -425,7 +431,7 @@ analyseBinding n@Node{ nodeSpan } = do
   for_ ( findDeclarations n ) \d -> do
     define d nodeSpan
 
-    followEvidenceUses n d
+    requestEvidence n d
 
     for_ ( uses n ) $ addDependency d
 
@@ -446,7 +452,7 @@ analyseInstanceDeclaration n@Node{ nodeSpan } = do
     -- the output if type-class-roots is set to False.
     define d nodeSpan
 
-    followEvidenceUses n d
+    requestEvidence n d
 
     for_ ( uses n ) $ addDependency d
 
@@ -462,7 +468,7 @@ analyseClassDeclaration n@Node{ nodeSpan } = do
   for_ ( findIdentifiers isClassDeclaration n ) $ \d -> do
     define d nodeSpan
 
-    followEvidenceUses n d
+    requestEvidence n d
 
     (for_ ( findIdentifiers ( const True ) n ) . addDependency) d
 
@@ -507,7 +513,7 @@ analyseDataDeclaration n = do
   for_ ( derivedInstances n ) \(d, cs, ids, ast) -> do
     define d (nodeSpan ast)
 
-    followEvidenceUses ast d
+    requestEvidence ast d
 
     for_ ( uses ast ) $ addDependency d
 
@@ -550,7 +556,7 @@ analyseStandaloneDeriving n@Node{ nodeSpan } = do
   for_ (findEvInstBinds n) \(d, cs, ids, _) -> do
     define d nodeSpan
 
-    followEvidenceUses n d
+    requestEvidence n d
 
     for_ (uses n) $ addDependency d
 
@@ -720,24 +726,15 @@ unNodeAnnotation :: NodeAnnotation -> (String, String)
 unNodeAnnotation (NodeAnnotation x y) = (unpackFS x, unpackFS y)
 
 
--- | Follow evidence uses under the given node back to their instance bindings,
--- and connect the declaration to those bindings.
-followEvidenceUses :: ( MonadState Analysis m, MonadReader AnalysisInfo m ) => HieAST a -> Declaration -> m ()
-followEvidenceUses n d = do
+-- | Add evidence uses found under the given node to 'requestedEvidence'.
+requestEvidence :: ( MonadState Analysis m, MonadReader AnalysisInfo m ) => HieAST a -> Declaration -> m ()
+requestEvidence n d = do
   Config{ typeClassRoots } <- asks weederConfig
-  AnalysisInfo{ refMap } <- ask
 
-  let getEvidenceTrees = mapMaybe (getEvidenceTree refMap)
-      evidenceInfos = concatMap Tree.flatten (getEvidenceTrees names)
-      instanceEvidenceInfos = evidenceInfos & filter \case
-        EvidenceInfo _ _ _ (Just (EvInstBind _ _, ModuleScope, _)) -> True
-        _ -> False
-
-  -- If type-class-roots flag is set then we don't need to follow evidence uses
-  -- as the binding sites will be roots anyway
-  unless typeClassRoots $ for_ instanceEvidenceInfos \ev -> do
-    let name = nameToDeclaration (evidenceVar ev)
-    mapM_ (addDependency d) name
+  -- If type-class-roots flag is set then we don't need to follow
+  -- evidence uses as the binding sites will be roots anyway
+  unless typeClassRoots $
+    #requestedEvidence %= Map.insertWith (<>) d (Set.fromList names)
 
   where
 
@@ -748,3 +745,24 @@ followEvidenceUses n d = do
       { Tree.rootLabel = concatMap (findEvidenceUse . nodeIdentifiers) (getSourcedNodeInfo sourcedNodeInfo)
       , Tree.subForest = map evidenceUseTree nodeChildren
       }
+
+
+-- | Follow evidence uses under the given node back to their instance bindings,
+-- and connect the declaration to those bindings.
+followEvidenceUses :: RefMap TypeIndex -> Declaration -> Set Name -> Graph Declaration
+followEvidenceUses refMap d names =
+  let getEvidenceTrees = mapMaybe (getEvidenceTree refMap) . Set.toList
+      evidenceInfos = concatMap Tree.flatten (getEvidenceTrees names)
+      instanceEvidenceInfos = evidenceInfos & filter \case
+        EvidenceInfo _ _ _ (Just (EvInstBind _ _, ModuleScope, _)) -> True
+        _ -> False
+      evBindSiteDecls = mapMaybe (nameToDeclaration . evidenceVar) instanceEvidenceInfos
+   in star d evBindSiteDecls
+
+
+-- | Follow evidence uses listed under 'requestedEvidence' back to their 
+-- instance bindings, and connect their corresponding declaration to those bindings.
+analyseEvidenceUses :: RefMap TypeIndex -> Analysis -> Analysis
+analyseEvidenceUses rf a@Analysis{ requestedEvidence, dependencyGraph } =
+  let graphs = map (uncurry (followEvidenceUses rf)) $ Map.toList requestedEvidence
+   in a { dependencyGraph = overlays (dependencyGraph : graphs) }
