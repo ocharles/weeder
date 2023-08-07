@@ -3,6 +3,6 @@ roots = [ "Spec.OverloadedStrings.OverloadedStrings.root"
         , "Spec.OverloadedStrings.OverloadedStrings.BetterString"
         ]
 
-root-classes = []
+root-instances = []
 
 type-class-roots = false

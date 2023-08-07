@@ -201,8 +201,9 @@ data Root
     DeclarationRoot Declaration
   | -- | We store extra information for instances in order to be able
     -- to specify e.g. all instances of a class as roots.
-    InstanceRoot Declaration
-      OccName -- ^ Name of the parent class
+    InstanceRoot 
+      Declaration -- ^ Declaration of the instance
+      Declaration -- ^ Declaration of the parent class
   | -- | All exported declarations in a module are roots.
     ModuleRoot Module
   deriving
@@ -335,7 +336,8 @@ addImplicitRoot x =
 
 addInstanceRoot :: ( MonadState Analysis m, MonadReader AnalysisInfo m ) => Declaration -> TypeIndex -> Name -> m ()
 addInstanceRoot x t cls = do
-  #implicitRoots %= Set.insert (InstanceRoot x (nameOccName cls))
+  for_ (nameToDeclaration cls) \cls' ->
+    #implicitRoots %= Set.insert (InstanceRoot x cls')
 
   -- since instances will not appear in the output if typeClassRoots is True
   Config{ typeClassRoots } <- asks weederConfig
