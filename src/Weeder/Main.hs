@@ -10,9 +10,12 @@
 
 module Weeder.Main ( main, mainWithConfig, getHieFiles, runWeeder, Weed(..), formatWeed ) where
 
+-- async
+import Control.Concurrent.Async ( async, link, ExceptionInLinkedThread ( ExceptionInLinkedThread ) )
+
 -- base
-import Control.Exception ( Exception, throwIO, displayException, handle )
-import Control.Concurrent ( getChanContents, newChan, writeChan, forkIO )
+import Control.Exception ( Exception, throwIO, displayException, catches, Handler ( Handler ), SomeException ( SomeException ) )
+import Control.Concurrent ( getChanContents, newChan, writeChan )
 import Control.Monad ( guard, unless, when )
 import Data.Foldable
 import Data.Function ((&))
@@ -110,11 +113,21 @@ instance Exception WeederException where
 
 
 -- | Convert 'WeederException' to the corresponding 'ExitCode' and emit an error 
--- message to stderr
+-- message to stderr.
+--
+-- Additionally, unwrap 'ExceptionInLinkedThread' exceptions: this is for
+-- 'getHieFiles'.
 handleWeederException :: IO a -> IO a
-handleWeederException = handle \w -> do
-  hPutStrLn stderr (displayException w)
-  exitWith (weederExitCode w)
+handleWeederException a = catches a handlers 
+  where
+    handlers = [ Handler rethrowExits
+               , Handler unwrapLinks
+               ]
+    rethrowExits w = do
+      hPutStrLn stderr (displayException w)
+      exitWith (weederExitCode w)
+    unwrapLinks (ExceptionInLinkedThread _ (SomeException w)) =
+      throwIO w
 
 
 data CLIArguments = CLIArguments
@@ -238,6 +251,8 @@ mainWithConfig hieExt hieDirectories requireHsFiles weederConfig = handleWeederE
 -- | Find and read all .hie files in the given directories according to the given parameters,
 -- exiting if any are incompatible with the current version of GHC.
 -- The .hie files are returned as a lazy stream in the form of a list.
+--
+-- Will rethrow exceptions as 'ExceptionInLinkedThread' to the calling thread.
 getHieFiles :: String -> [FilePath] -> Bool -> IO [HieFile]
 getHieFiles hieExt hieDirectories requireHsFiles = do
   hieFilePaths <-
@@ -258,9 +273,11 @@ getHieFiles hieExt hieDirectories requireHsFiles = do
   nameCache <-
     initNameCache 'z' []
 
-  _ <- forkIO do
+  a <- async $ handleWeederException do
     readHieFiles nameCache hieFilePaths hieFileResultsChan hsFilePaths
     writeChan hieFileResultsChan Nothing
+ 
+  link a
 
   catMaybes . takeWhile isJust <$> getChanContents hieFileResultsChan
 
