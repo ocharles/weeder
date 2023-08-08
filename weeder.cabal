@@ -39,7 +39,7 @@ library
     , transformers         ^>= 0.5.6.2 || ^>= 0.6
   hs-source-dirs: src
   exposed-modules:
-    Weeder
+    Weeder.Analysis
     Weeder.Config
     Weeder.Main
   autogen-modules:
