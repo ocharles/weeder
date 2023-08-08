@@ -200,7 +200,7 @@ mainWithConfig hieExt hieDirectories requireHsFiles weederConfig = handleWeederE
 -- | Find and read all .hie files in the given directories according to the given parameters,
 -- exiting if any are incompatible with the current version of GHC.
 getHieFiles :: String -> [FilePath] -> Bool -> IO [HieFile]
-getHieFiles hieExt hieDirectories requireHsFiles = do
+getHieFiles hieExt hieDirectories requireHsFiles = handleWeederException do
   hieFilePaths <-
     concat <$>
       traverse ( getFilesIn hieExt )
