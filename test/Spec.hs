@@ -26,7 +26,7 @@ main = do
       graphviz = "--graphviz" `elem` args
   withArgs (filter (/="--graphviz") args) $
     hspec $ afterAll_ (when graphviz drawDots) $ do
-      describe "Weeder.Main" $
+      describe "Weeder.Run" $
         describe "runWeeder" $
           zipWithM_ (uncurry integrationTestSpec) testOutputFiles hieDirectories
       UnitTests.spec
