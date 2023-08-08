@@ -1,6 +1,5 @@
 import qualified Weeder.Main
 import qualified Weeder.Analysis
-import qualified Weeder
 import qualified TOML
 import qualified UnitTests
 
@@ -78,11 +77,11 @@ integrationTestOutput :: FilePath -> IO String
 integrationTestOutput hieDirectory = do
   hieFiles <- Weeder.Main.getHieFiles ".hie" [hieDirectory] True
   weederConfig <- TOML.decodeFile configExpr >>= either throwIO pure
-  let (weeds, analysis) = Weeder.runWeeder weederConfig hieFiles
+  let (weeds, analysis) = Weeder.Main.runWeeder weederConfig hieFiles
       graph = Weeder.Analysis.dependencyGraph analysis
       graph' = export (defaultStyle (occNameString . Weeder.Analysis.declOccName)) graph
   handle (\e -> hPrint stderr (e :: IOException)) $
     writeFile (hieDirectory <.> ".dot") graph'
-  pure (unlines $ map Weeder.formatWeed weeds)
+  pure (unlines $ map Weeder.Main.formatWeed weeds)
   where
     configExpr = hieDirectory <.> ".toml"
