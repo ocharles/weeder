@@ -41,6 +41,7 @@ library
   exposed-modules:
     Weeder
     Weeder.Config
+    Weeder.Run
     Weeder.Main
   autogen-modules:
     Paths_weeder
