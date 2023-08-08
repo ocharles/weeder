@@ -9,7 +9,7 @@
 {-# language OverloadedStrings #-}
 {-# language TupleSections #-}
 
-module Weeder.Analysis
+module Weeder
   ( -- * Analysis
     Analysis(..)
   , analyseHieFiles
