@@ -12,18 +12,11 @@ module Weeder.Main ( main, mainWithConfig, getHieFiles, runWeeder, Weed(..), for
 
 -- base
 import Control.Exception ( Exception, throwIO, displayException, handle )
-import Control.Monad ( guard, unless, when )
-import Data.Foldable
-import Data.Function ((&))
-import Data.List ( isSuffixOf, sortOn )
+import Control.Monad ( unless, when )
+import Data.List ( isSuffixOf )
 import Data.Version ( showVersion )
 import System.Exit ( ExitCode(..), exitWith )
 import System.IO ( stderr, hPutStrLn )
-
--- containers
-import qualified Data.Map.Strict as Map
-import Data.Set ( Set )
-import qualified Data.Set as Set
 
 -- toml-reader
 import qualified TOML
@@ -37,22 +30,13 @@ import System.FilePath ( isExtensionOf )
 -- ghc
 import GHC.Iface.Ext.Binary ( HieFileResult( HieFileResult, hie_file_result ), readHieFileWithVersion )
 import GHC.Iface.Ext.Types ( HieFile( hie_hs_file ), hieVersion )
-import GHC.Unit.Module ( moduleName, moduleNameString )
 import GHC.Types.Name.Cache ( initNameCache, NameCache )
-import GHC.Types.Name ( occNameString )
-import GHC.Types.SrcLoc ( RealSrcLoc, realSrcSpanStart, srcLocLine )
-
--- regex-tdfa
-import Text.Regex.TDFA ( (=~) )
 
 -- optparse-applicative
 import Options.Applicative
 
 -- text
 import qualified Data.Text.IO as T
-
--- transformers
-import Control.Monad.Trans.State.Strict ( execState )
 
 -- weeder
 import Weeder.Run
