@@ -8,7 +8,7 @@
 
 -- | This module provides an entry point to the Weeder executable.
 
-module Weeder.Main ( main, mainWithConfig, getHieFiles, runWeeder, Weed(..), formatWeed ) where
+module Weeder.Main ( main, mainWithConfig, getHieFiles ) where
 
 -- base
 import Control.Exception ( Exception, throwIO, displayException, handle )
