@@ -1,0 +1,4 @@
+kind: Added
+body: Weeder now optionally detects uses of types, excluding type family instances.
+  This can be enabled with the `unused-types` configuration option. (#132)
+time: 2023-08-09T21:31:52.932296947+01:00
