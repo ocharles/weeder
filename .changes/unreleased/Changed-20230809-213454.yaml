@@ -1,0 +1,4 @@
+kind: Changed
+body: Weeder will now use distinct exit codes for certain failures. See `README.md`
+  for more details. (#134)
+time: 2023-08-09T21:34:54.138024763+01:00
