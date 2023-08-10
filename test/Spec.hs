@@ -1,4 +1,5 @@
 import qualified Weeder.Main
+import qualified Weeder.Run
 import qualified Weeder
 import qualified TOML
 import qualified UnitTests
@@ -9,8 +10,7 @@ import System.Directory
 import System.Environment (getArgs, withArgs)
 import System.FilePath
 import System.Process
-import System.IO.Silently (hCapture_)
-import System.IO (stdout, stderr, hPrint)
+import System.IO (stderr, hPrint)
 import Test.Hspec
 import Control.Monad (zipWithM_, when)
 import Control.Exception ( throwIO, IOException, handle )
@@ -26,8 +26,8 @@ main = do
       graphviz = "--graphviz" `elem` args
   withArgs (filter (/="--graphviz") args) $
     hspec $ afterAll_ (when graphviz drawDots) $ do
-      describe "Weeder.Main" $
-        describe "mainWithConfig" $
+      describe "Weeder.Run" $
+        describe "runWeeder" $
           zipWithM_ (uncurry integrationTestSpec) testOutputFiles hieDirectories
       UnitTests.spec
   where
@@ -54,7 +54,7 @@ integrationTestSpec failingFile stdoutFile hieDirectory = do
         failingOutput <- readFile f
         actualOutput `shouldNotBe` expectedOutput
         actualOutput `shouldBe` failingOutput
-      Nothing -> 
+      Nothing ->
         actualOutput `shouldBe` expectedOutput
   where
     integrationTestText = case failingFile of
@@ -65,7 +65,7 @@ integrationTestSpec failingFile stdoutFile hieDirectory = do
 discoverIntegrationTests :: IO [(Maybe FilePath, FilePath)]
 discoverIntegrationTests = do
   contents <- listDirectory testPath
-  let stdoutFiles = map (testPath </>) $ 
+  let stdoutFiles = map (testPath </>) $
         filter (".stdout" `isExtensionOf`) contents
   pure . map (\s -> (findFailing s contents, s)) $ stdoutFiles
     where
@@ -75,16 +75,14 @@ discoverIntegrationTests = do
 -- | Run weeder on the given directory for .hie files, returning stdout
 -- Also creates a dotfile containing the dependency graph as seen by Weeder
 integrationTestOutput :: FilePath -> IO String
-integrationTestOutput hieDirectory = hCapture_ [stdout] $ do
-  isEmpty <- not . any (".hie" `isExtensionOf`) <$> listDirectory hieDirectory
-  when isEmpty $ fail "No .hie files found in directory, this is probably unintended"
-  (_, analysis) <-
-    TOML.decodeFile configExpr
-      >>= either throwIO pure
-      >>= Weeder.Main.mainWithConfig ".hie" [hieDirectory] True
-  let graph = Weeder.dependencyGraph analysis
+integrationTestOutput hieDirectory = do
+  hieFiles <- Weeder.Main.getHieFiles ".hie" [hieDirectory] True
+  weederConfig <- TOML.decodeFile configExpr >>= either throwIO pure
+  let (weeds, analysis) = Weeder.Run.runWeeder weederConfig hieFiles
+      graph = Weeder.dependencyGraph analysis
       graph' = export (defaultStyle (occNameString . Weeder.declOccName)) graph
   handle (\e -> hPrint stderr (e :: IOException)) $
     writeFile (hieDirectory <.> ".dot") graph'
+  pure (unlines $ map Weeder.Run.formatWeed weeds)
   where
     configExpr = hieDirectory <.> ".toml"
