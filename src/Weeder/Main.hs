@@ -15,7 +15,7 @@ import Control.Concurrent.Async ( async, link, ExceptionInLinkedThread ( Excepti
 
 -- base
 import Control.Exception ( Exception, throwIO, displayException, catches, Handler ( Handler ), SomeException ( SomeException ) )
-import Control.Concurrent ( getChanContents, newChan, writeChan )
+import Control.Concurrent ( getChanContents, newChan, writeChan, setNumCapabilities )
 import Control.Monad ( unless, when )
 import Data.Foldable
 import Data.List ( isSuffixOf )
@@ -118,6 +118,7 @@ data CLIArguments = CLIArguments
   , requireHsFiles :: Bool
   , writeDefaultConfig :: Bool
   , noDefaultFields :: Bool
+  , capabilities :: Maybe Int
   }
 
 
@@ -153,7 +154,18 @@ parseCLIArguments = do
           ( long "no-default-fields"
               <> help "Do not use default field values for missing fields in the configuration."
           )
+    capabilities <- nParser <|> jParser
     pure CLIArguments{..}
+    where
+      jParser = Just <$> option auto
+          ( short 'j'
+              <> value 1
+              <> help "Number of cores to use."
+              <> showDefault)
+      nParser = flag' Nothing
+          ( short 'N'
+              <> help "Use all available cores."
+          )
 
 
 -- | Parse command line arguments and into a 'Config' and run 'mainWithConfig'.
@@ -164,6 +176,8 @@ main = handleWeederException do
   CLIArguments{..} <-
     execParser $
       info (parseCLIArguments <**> helper <**> versionP) mempty
+
+  traverse_ setNumCapabilities capabilities
 
   configExists <-
     doesFileExist configPath
