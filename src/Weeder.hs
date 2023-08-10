@@ -163,10 +163,10 @@ data Analysis =
     { dependencyGraph :: Graph Declaration
       -- ^ A graph between declarations, capturing dependencies.
     , declarationSites :: Map Declaration (Set Int)
-      -- ^ A partial mapping between declarations and their definition site.
+      -- ^ A partial mapping between declarations and their line numbers.
       -- This Map is partial as we don't always know where a Declaration was
       -- defined (e.g., it may come from a package without source code).
-      -- We capture a set of spans, because a declaration may be defined in
+      -- We capture a set of sites, because a declaration may be defined in
       -- multiple locations, e.g., a type signature for a function separate
       -- from its definition.
     , implicitRoots :: Set Root
@@ -747,7 +747,7 @@ requestEvidence n d = do
       }
 
 
--- | Follow evidence uses under the given node back to their instance bindings,
+-- | Follow the given evidence uses back to their instance bindings,
 -- and connect the declaration to those bindings.
 followEvidenceUses :: RefMap TypeIndex -> Declaration -> Set Name -> Graph Declaration
 followEvidenceUses refMap d names =
