@@ -6,8 +6,6 @@
 {-# language PatternSynonyms #-}
 {-# language FlexibleInstances #-}
 {-# language DeriveTraversable #-}
-{-# language TypeFamilies #-}
-{-# language StandaloneDeriving #-}
 {-# language NamedFieldPuns #-}
 
 module Weeder.Config
@@ -37,8 +35,7 @@ import Data.Char (toLower)
 import Data.List (intersperse, intercalate)
 
 -- containers
-import Data.Set ( Set )
-import qualified Data.Set as Set
+import Data.Containers.ListUtils (nubOrd)
 
 -- regex-tdfa
 import Text.Regex.TDFA ( Regex, RegexOptions ( defaultExecOpt, defaultCompOpt ) )
@@ -58,35 +55,21 @@ type Config = ConfigType Regex
 type ConfigParsed = ConfigType String
 
 
-type family InstancePatterns a where
-  InstancePatterns String = Set (InstancePattern String)
-  InstancePatterns Regex = [InstancePattern Regex]
-
-
-type family RootPatterns a where
-  RootPatterns String = Set String
-  RootPatterns Regex = [Regex]
-
-
 -- | Underlying type for 'Config' and 'ConfigParsed'.
 data ConfigType a = Config
-  { rootPatterns :: RootPatterns a
+  { rootPatterns :: [a]
     -- ^ Any declarations matching these regular expressions will be added to
     -- the root set.
   , typeClassRoots :: Bool
     -- ^ If True, consider all declarations in a type class as part of the root
     -- set. Overrides root-instances.
-  , rootInstances :: InstancePatterns a
+  , rootInstances :: [InstancePattern a]
     -- ^ All matching instances will be added to the root set. An absent field
     -- will always match.
   , unusedTypes :: Bool
     -- ^ Toggle to look for and output unused types. Type family instances will
     -- be marked as implicit roots.
-  }
-
-
-deriving instance Eq (ConfigType String)
-deriving instance Show (ConfigType String)
+  } deriving (Eq, Show)
 
 
 -- | Construct via InstanceOnly, ClassOnly or ModuleOnly, 
@@ -113,9 +96,9 @@ pattern ModuleOnly m = InstancePattern Nothing Nothing (Just m)
 
 defaultConfig :: ConfigParsed
 defaultConfig = Config
-  { rootPatterns = Set.fromList [ "Main.main", "^Paths_.*"]
+  { rootPatterns = [ "Main.main", "^Paths_.*"]
   , typeClassRoots = False
-  , rootInstances = Set.fromList [ ClassOnly "\\.IsString$", ClassOnly "\\.IsList$" ]
+  , rootInstances = [ ClassOnly "\\.IsString$", ClassOnly "\\.IsList$" ]
   , unusedTypes = False
   }
 
@@ -199,18 +182,18 @@ compileRegex = bimap show (\p -> patternToRegex p defaultCompOpt defaultExecOpt)
 
 compileConfig :: ConfigParsed -> Either String Config
 compileConfig conf@Config{ rootInstances, rootPatterns } = do
-  rootInstances' <- traverse (traverse compileRegex) . Set.toList $ rootInstances
-  rootPatterns' <- traverse compileRegex $ Set.toList rootPatterns
+  rootInstances' <- traverse (traverse compileRegex) . nubOrd $ rootInstances
+  rootPatterns' <- traverse compileRegex $ nubOrd rootPatterns
   pure conf{ rootInstances = rootInstances', rootPatterns = rootPatterns' }
 
 
 configToToml :: ConfigParsed -> String
 configToToml Config{..}
   = unlines . intersperse mempty $
-      [ "roots = " ++ show (Set.toList rootPatterns)
+      [ "roots = " ++ show rootPatterns
       , "type-class-roots = " ++ map toLower (show typeClassRoots)
       , "root-instances = " ++ "[" ++ intercalate "," (map showInstancePattern rootInstances') ++ "]"
       , "unused-types = " ++ map toLower (show unusedTypes)
       ]
   where
-    rootInstances' = Set.toList rootInstances
+    rootInstances' = rootInstances
