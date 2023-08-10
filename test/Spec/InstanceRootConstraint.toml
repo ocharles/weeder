@@ -2,6 +2,4 @@ roots = []
 
 type-class-roots = false
 
-root-classes = []
-
 root-instances = [ 'Foo a => Foo \[a\]' ]

@@ -1,0 +1,7 @@
+roots = [ "Spec.TypeAliasGADT.TypeAliasGADT.root" ]
+
+type-class-roots = false
+
+unused-types = true
+
+root-instances = []
