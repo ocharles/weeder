@@ -1,7 +1,6 @@
 module UnitTests.Weeder.ConfigSpec (spec) where
 
 import Weeder.Config
-import qualified Data.Set as Set
 import qualified TOML
 import qualified Data.Text as T
 import Test.Hspec (Spec, describe, it)
@@ -19,7 +18,7 @@ prop_configToToml =
   let cf = Config
         { rootPatterns = mempty
         , typeClassRoots = True
-        , rootInstances = Set.fromList [InstanceOnly "Quux\\\\[\\]", ClassOnly "[\\[\\\\[baz" <> ModuleOnly "[Quuux]", InstanceOnly "[\\[\\\\[baz" <> ClassOnly "[Quuux]" <> ModuleOnly "[Quuuux]"]
+        , rootInstances = [InstanceOnly "Quux\\\\[\\]", ClassOnly "[\\[\\\\[baz" <> ModuleOnly "[Quuux]", InstanceOnly "[\\[\\\\[baz" <> ClassOnly "[Quuux]" <> ModuleOnly "[Quuuux]"]
         , unusedTypes = True
         }
       cf' = T.pack $ configToToml cf

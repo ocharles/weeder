@@ -10,10 +10,16 @@
 
 module Weeder.Main ( main, mainWithConfig, getHieFiles ) where
 
+-- async
+import Control.Concurrent.Async ( async, link, ExceptionInLinkedThread ( ExceptionInLinkedThread ) )
+
 -- base
-import Control.Exception ( Exception, throwIO, displayException, handle )
+import Control.Exception ( Exception, throwIO, displayException, catches, Handler ( Handler ), SomeException ( SomeException ) )
+import Control.Concurrent ( getChanContents, newChan, writeChan, setNumCapabilities )
 import Control.Monad ( unless, when )
+import Data.Foldable
 import Data.List ( isSuffixOf )
+import Data.Maybe ( isJust, catMaybes )
 import Data.Version ( showVersion )
 import System.Exit ( ExitCode(..), exitWith )
 import System.IO ( stderr, hPutStrLn )
@@ -88,11 +94,21 @@ instance Exception WeederException where
 
 
 -- | Convert 'WeederException' to the corresponding 'ExitCode' and emit an error 
--- message to stderr
+-- message to stderr.
+--
+-- Additionally, unwrap 'ExceptionInLinkedThread' exceptions: this is for
+-- 'getHieFiles'.
 handleWeederException :: IO a -> IO a
-handleWeederException = handle \w -> do
-  hPutStrLn stderr (displayException w)
-  exitWith (weederExitCode w)
+handleWeederException a = catches a handlers 
+  where
+    handlers = [ Handler rethrowExits
+               , Handler unwrapLinks
+               ]
+    rethrowExits w = do
+      hPutStrLn stderr (displayException w)
+      exitWith (weederExitCode w)
+    unwrapLinks (ExceptionInLinkedThread _ (SomeException w)) =
+      throwIO w
 
 
 data CLIArguments = CLIArguments
@@ -102,6 +118,7 @@ data CLIArguments = CLIArguments
   , requireHsFiles :: Bool
   , writeDefaultConfig :: Bool
   , noDefaultFields :: Bool
+  , capabilities :: Maybe Int
   }
 
 
@@ -137,7 +154,18 @@ parseCLIArguments = do
           ( long "no-default-fields"
               <> help "Do not use default field values for missing fields in the configuration."
           )
+    capabilities <- nParser <|> jParser
     pure CLIArguments{..}
+    where
+      jParser = Just <$> option auto
+          ( short 'j'
+              <> value 1
+              <> help "Number of cores to use."
+              <> showDefault)
+      nParser = flag' Nothing
+          ( short 'N'
+              <> help "Use all available cores."
+          )
 
 
 -- | Parse command line arguments and into a 'Config' and run 'mainWithConfig'.
@@ -148,6 +176,8 @@ main = handleWeederException do
   CLIArguments{..} <-
     execParser $
       info (parseCLIArguments <**> helper <**> versionP) mempty
+
+  traverse_ setNumCapabilities capabilities
 
   configExists <-
     doesFileExist configPath
@@ -199,8 +229,11 @@ mainWithConfig hieExt hieDirectories requireHsFiles weederConfig = handleWeederE
 
 -- | Find and read all .hie files in the given directories according to the given parameters,
 -- exiting if any are incompatible with the current version of GHC.
+-- The .hie files are returned as a lazy stream in the form of a list.
+--
+-- Will rethrow exceptions as 'ExceptionInLinkedThread' to the calling thread.
 getHieFiles :: String -> [FilePath] -> Bool -> IO [HieFile]
-getHieFiles hieExt hieDirectories requireHsFiles = handleWeederException do
+getHieFiles hieExt hieDirectories requireHsFiles = do
   hieFilePaths <-
     concat <$>
       traverse ( getFilesIn hieExt )
@@ -214,18 +247,28 @@ getHieFiles hieExt hieDirectories requireHsFiles = handleWeederException do
       then getFilesIn ".hs" "./."
       else pure []
 
+  hieFileResultsChan <- newChan
+
   nameCache <-
     initNameCache 'z' []
 
-  hieFileResults <-
-    mapM ( readCompatibleHieFileOrExit nameCache ) hieFilePaths
+  a <- async $ handleWeederException do
+    readHieFiles nameCache hieFilePaths hieFileResultsChan hsFilePaths
+    writeChan hieFileResultsChan Nothing
+ 
+  link a
 
-  let
-    hieFileResults' = flip filter hieFileResults \hieFileResult ->
-      let hsFileExists = any ( hie_hs_file hieFileResult `isSuffixOf` ) hsFilePaths
-       in requireHsFiles ==> hsFileExists
+  catMaybes . takeWhile isJust <$> getChanContents hieFileResultsChan
 
-  pure hieFileResults'
+  where
+
+    readHieFiles nameCache hieFilePaths hieFileResultsChan hsFilePaths =
+      for_ hieFilePaths \hieFilePath -> do
+        hieFileResult <-
+          readCompatibleHieFileOrExit nameCache hieFilePath
+        let hsFileExists = any ( hie_hs_file hieFileResult `isSuffixOf` ) hsFilePaths
+        when (requireHsFiles ==> hsFileExists) $
+          writeChan hieFileResultsChan (Just hieFileResult)
 
 
 -- | Recursively search for files with the given extension in given directory
