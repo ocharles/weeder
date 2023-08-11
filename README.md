@@ -90,7 +90,7 @@ in the Dhall project).
 | Name             | Default value                        | Description |
 | ---------------- | ------------------------------------ | --- |
 | roots            | `[ "Main.main", "^Paths_weeder.*" ]` | Any declarations matching these regular expressions will be considered as alive. |
-| type-class-roots | `false`                              | Consider all instances of type classes as roots. Overrides `root-classes` and `root-instances`. |
+| type-class-roots | `false`                              | Consider all instances of type classes as roots. Overrides `root-instances`. |
 | root-instances   | `[ {class = '\.IsString$'}, {class = '\.IsList$'} ]` | Type class instances that match on all specified fields will be considered as roots. Accepts the fields `instance` matching on the pretty-printed type of the instance (visible in the output), `class` matching on its parent class declaration, and `module` matching on the module the instance is in. |
 | unused-types     | `false`                              | Enable analysis of unused types. |
 
