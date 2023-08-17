@@ -1,4 +1,0 @@
-kind: Added
-body: 'Weeder now supports type class instances. Type class instances can be marked
-  as roots with the `root-instances` configuration option. (#126, #133, #136)'
-time: 2023-08-09T21:33:11.701883962+01:00
