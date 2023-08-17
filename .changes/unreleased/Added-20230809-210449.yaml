@@ -1,4 +1,0 @@
-kind: Added
-body: '`--write-default-config` flag to write and read Weeder's default configuration,
-  if no configuration file is found. (#133)'
-time: 2023-08-09T21:04:49.879975564+01:00
