@@ -7,7 +7,6 @@
 module Weeder.Run ( runWeeder, Weed(..), formatWeed ) where
 
 -- base
-import Control.Applicative ( liftA2 )
 import Control.Monad ( guard )
 import Data.List ( sortOn )
 import Data.Foldable ( fold, foldl' )
@@ -19,10 +18,10 @@ import qualified Data.Set as Set
 import qualified Data.Map.Strict as Map
 
 -- ghc
-import GHC.Plugins 
+import GHC.Plugins
   ( occNameString
   , moduleName
-  , moduleNameString 
+  , moduleNameString
   )
 import GHC.Iface.Ext.Types ( HieFile( hie_asts ), getAsts )
 import GHC.Iface.Ext.Utils (generateReferencesMap)
@@ -63,7 +62,7 @@ formatWeed Weed{..} =
 -- 'formatWeed', and the final 'Analysis'.
 runWeeder :: Config -> [HieFile] -> ([Weed], Analysis)
 runWeeder weederConfig@Config{ rootPatterns, typeClassRoots, rootInstances } hieFiles =
-  let 
+  let
     asts = concatMap (Map.elems . getAsts . hie_asts) hieFiles
 
     rf = generateReferencesMap asts
@@ -71,15 +70,15 @@ runWeeder weederConfig@Config{ rootPatterns, typeClassRoots, rootInstances } hie
     analyses =
       parMap rdeepseq (\hf -> execState (analyseHieFile weederConfig hf) emptyAnalysis) hieFiles
 
-    analyseEvidenceUses' = 
+    analyseEvidenceUses' =
       if typeClassRoots
         then id
         else analyseEvidenceUses rf
 
-    analysis1 = 
+    analysis1 =
       foldl' mappend mempty analyses
 
-    -- Evaluating 'analysis1' first allows us to begin analysis 
+    -- Evaluating 'analysis1' first allows us to begin analysis
     -- while hieFiles is still being read (since rf depends on all hie files)
     analysis = analysis1 `pseq`
       analyseEvidenceUses' analysis1
@@ -140,20 +139,20 @@ runWeeder weederConfig@Config{ rootPatterns, typeClassRoots, rootInstances } hie
 
       InstanceRoot d c -> typeClassRoots || matchingType
         where
-          matchingType = 
+          matchingType =
             let mt = Map.lookup d prettyPrintedType
                 matches = maybe (const False) (flip matchTest) mt
             in any (maybe True matches) filteredInstances
 
-          filteredInstances = 
-            map instancePattern 
-            . filter (maybe True (`matchTest` displayDeclaration c) . classPattern) 
-            . filter (maybe True modulePathMatches . modulePattern) 
+          filteredInstances =
+            map instancePattern
+            . filter (maybe True (`matchTest` displayDeclaration c) . classPattern)
+            . filter (maybe True modulePathMatches . modulePattern)
             $ rootInstances
 
           modulePathMatches p = maybe False (p `matchTest`) (Map.lookup ( declModule d ) modulePaths)
 
 
 displayDeclaration :: Declaration -> String
-displayDeclaration d = 
+displayDeclaration d =
   moduleNameString ( moduleName ( declModule d ) ) <> "." <> occNameString ( declOccName d )
