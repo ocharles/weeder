@@ -6,3 +6,4 @@
 *.ps
 dist-newstyle
 cabal.project.local
+/.direnv

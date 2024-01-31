@@ -28,7 +28,7 @@
         };
 
         weeder = pkgs.haskell-nix.project {
-          compiler-nix-name = "ghc961";
+          compiler-nix-name = "ghc981";
 
           cabalProjectLocal = builtins.readFile ./cabal.project.haskell-nix;
 
@@ -40,6 +40,13 @@
           modules = [
             {
               reinstallableLibGhc = false;
+              nonReinstallablePkgs = [
+                "rts" "ghc-prim" "integer-gmp" "integer-simple" "base"
+                "deepseq" "array" "ghc-boot-th" "pretty" "template-haskell"
+                "ghc-bignum" "system-cxx-std-lib" "ghc" "binary" "bytestring" "containers" 
+                "directory" "exceptions" "filepath" "hpc" "process" "semaphore-compat" "stm" 
+                "time" "transformers" "unix" "mtl"
+              ];
             }
           ];
         };
