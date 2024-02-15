@@ -40,6 +40,13 @@
           modules = [
             {
               reinstallableLibGhc = false;
+              nonReinstallablePkgs = [
+                "rts" "ghc-prim" "integer-gmp" "integer-simple" "base"
+                "deepseq" "array" "ghc-boot-th" "pretty" "template-haskell"
+                "ghc-bignum" "system-cxx-std-lib" "ghc" "binary" "bytestring" "containers" 
+                "directory" "exceptions" "filepath" "hpc" "process" "semaphore-compat" "stm" 
+                "time" "transformers" "unix" "mtl"
+              ];
             }
           ];
         };
