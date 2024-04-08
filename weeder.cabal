@@ -92,6 +92,8 @@ test-suite weeder-test
     Spec.DeriveGeneric.DeriveGeneric
     Spec.InstanceRootConstraint.InstanceRootConstraint
     Spec.InstanceTypeclass.InstanceTypeclass
+    Spec.ModuleRoot.InstanceNotRoot
+    Spec.ModuleRoot.M
     Spec.Monads.Monads
     Spec.NumInstance.NumInstance
     Spec.NumInstanceLiteral.NumInstanceLiteral

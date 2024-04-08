@@ -1,0 +1,5 @@
+roots = []
+
+root-modules = [ '^Spec\.ModuleRoot\.M$', '^Spec\.ModuleRoot\.InstanceNotRoot$' ]
+
+type-class-roots = false

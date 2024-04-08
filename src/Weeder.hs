@@ -56,6 +56,7 @@ import qualified Data.Tree as Tree
 import Data.Generics.Labels ()
 
 -- ghc
+import GHC.Types.Avail ( AvailInfo, availName, availNames )
 import GHC.Data.FastString ( unpackFS )
 import GHC.Iface.Ext.Types
   ( BindType( RegularBind )
@@ -64,7 +65,7 @@ import GHC.Iface.Ext.Types
   , EvVarSource ( EvInstBind, cls )
   , HieAST( Node, nodeChildren, nodeSpan, sourcedNodeInfo )
   , HieASTs( HieASTs )
-  , HieFile( HieFile, hie_asts, hie_module, hie_hs_file, hie_types )
+  , HieFile( HieFile, hie_asts, hie_exports, hie_module, hie_hs_file, hie_types )
   , HieType( HTyVarTy, HAppTy, HTyConApp, HForAllTy, HFunTy, HQualTy, HLitTy, HCastTy, HCoercionTy )
   , HieArgs( HieArgs )
   , HieTypeFix( Roll )
@@ -270,13 +271,15 @@ analyseHieFile weederConfig hieFile =
 
 analyseHieFile' :: ( MonadState Analysis m, MonadReader AnalysisInfo m ) => m ()
 analyseHieFile' = do
-  HieFile{ hie_asts = HieASTs hieASTs, hie_module, hie_hs_file } <- asks currentHieFile
+  HieFile{ hie_asts = HieASTs hieASTs, hie_exports, hie_module, hie_hs_file } <- asks currentHieFile
   #modulePaths %= Map.insert hie_module hie_hs_file
   
   g <- asks initialGraph
   #dependencyGraph %= overlay g
 
   for_ hieASTs topLevelAnalysis
+
+  for_ hie_exports ( analyseExport hie_module )
 
 
 lookupType :: HieFile -> TypeIndex -> HieTypeFix
@@ -322,6 +325,15 @@ typeToNames (Roll t) = case t of
 
     hieArgsTypes :: [(Bool, HieTypeFix)] -> Set Name
     hieArgsTypes = foldMap (typeToNames . snd) . filter fst
+
+
+analyseExport :: MonadState Analysis m => Module -> AvailInfo -> m ()
+analyseExport m a = 
+  traverse_ (traverse_ addExport . nameToDeclaration) (availName a : availNames a)
+  where
+
+    addExport :: MonadState Analysis m => Declaration -> m ()
+    addExport d = #exports %= Map.insertWith (<>) m ( Set.singleton d )
 
 
 -- | @addDependency x y@ adds the information that @x@ depends on @y@.
