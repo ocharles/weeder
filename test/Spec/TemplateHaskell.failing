@@ -1,0 +1,7 @@
+test/Spec/TemplateHaskell/TH.hs:7: oneQ
+test/Spec/TemplateHaskell/TH.hs:10: one
+test/Spec/TemplateHaskell/TH.hs:13: intQQ
+test/Spec/TemplateHaskell/TH.hs:21: zero1
+test/Spec/TemplateHaskell/TH.hs:24: zero2
+test/Spec/TemplateHaskell/TH.hs:27: zero3
+test/Spec/TemplateHaskell/TH.hs:30: zero4
