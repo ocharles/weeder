@@ -53,6 +53,10 @@ stack clean
 stack build
 ```
 
+### Nix
+
+See [`weeder-nix`](https://github.com/NorfairKing/weeder-nix) for `weeder <-> nixpkgs` integration.
+
 ## Calling Weeder
 
 To call Weeder, you first need to provide a configuration file, `weeder.toml`. Weeder uses
