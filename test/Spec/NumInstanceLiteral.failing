@@ -1,1 +1,1 @@
-test/Spec/NumInstanceLiteral/NumInstanceLiteral.hs:7:1: (Instance) :: Num Modulo1
+main: test/Spec/NumInstanceLiteral/NumInstanceLiteral.hs:7:1: (Instance) :: Num Modulo1

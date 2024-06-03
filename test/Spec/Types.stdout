@@ -1,1 +1,1 @@
-test/Spec/Types/Usages.hs:16:1: notRoot
+main: test/Spec/Types/Usages.hs:16:1: notRoot

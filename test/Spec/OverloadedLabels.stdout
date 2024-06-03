@@ -1,1 +1,1 @@
-test/Spec/OverloadedLabels/OverloadedLabels.hs:17:1: (Instance) :: Has Point "y" Int
+main: test/Spec/OverloadedLabels/OverloadedLabels.hs:17:1: (Instance) :: Has Point "y" Int

@@ -1,2 +1,2 @@
-test/Spec/InstanceTypeclass/InstanceTypeclass.hs:4:1: Foo
-test/Spec/InstanceTypeclass/InstanceTypeclass.hs:10:1: (Instance) :: Foo Char
+main: test/Spec/InstanceTypeclass/InstanceTypeclass.hs:4:1: Foo
+main: test/Spec/InstanceTypeclass/InstanceTypeclass.hs:10:1: (Instance) :: Foo Char

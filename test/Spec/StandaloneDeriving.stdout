@@ -1,1 +1,1 @@
-test/Spec/StandaloneDeriving/StandaloneDeriving.hs:6:1: (Instance) :: Show A
+main: test/Spec/StandaloneDeriving/StandaloneDeriving.hs:6:1: (Instance) :: Show A
