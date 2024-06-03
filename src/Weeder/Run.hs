@@ -44,7 +44,8 @@ import Weeder.Config
 
 data Weed = Weed
   { weedPath :: FilePath
-  , weedLoc :: Int
+  , weedLine :: Int
+  , weedCol :: Int
   , weedDeclaration :: Declaration
   , weedPrettyPrintedType :: Maybe String
   }
@@ -52,7 +53,7 @@ data Weed = Weed
 
 formatWeed :: Weed -> String
 formatWeed Weed{..} =
-  weedPath <> ":" <> show weedLoc <> ": "
+  weedPath <> ":" <> show weedLine <> ":" <> show weedCol <> ": "
     <> case weedPrettyPrintedType of
       Nothing -> occNameString ( declOccName weedDeclaration )
       Just t -> "(Instance) :: " <> t
@@ -121,10 +122,11 @@ runWeeder weederConfig@Config{ rootPatterns, typeClassRoots, rootInstances } hie
 
     weeds =
       Map.toList warnings & concatMap \( weedPath, declarations ) ->
-        sortOn fst declarations & map \( weedLoc, weedDeclaration ) ->
+        sortOn fst declarations & map \( (weedLine, weedCol) , weedDeclaration ) ->
           Weed { weedPrettyPrintedType = Map.lookup weedDeclaration (prettyPrintedType analysis)
                , weedPath
-               , weedLoc
+               , weedLine
+               , weedCol
                , weedDeclaration
                }
 

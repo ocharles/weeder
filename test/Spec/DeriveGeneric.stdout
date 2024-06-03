@@ -1,1 +1,1 @@
-test/Spec/DeriveGeneric/DeriveGeneric.hs:12: (Instance) :: FromJSON T
+test/Spec/DeriveGeneric/DeriveGeneric.hs:12:7: (Instance) :: FromJSON T
