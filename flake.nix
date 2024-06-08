@@ -40,6 +40,7 @@
           modules = [
             {
               reinstallableLibGhc = false;
+              enableLibraryProfiling = true;
               nonReinstallablePkgs = [
                 "rts" "ghc-prim" "integer-gmp" "integer-simple" "base"
                 "deepseq" "array" "ghc-boot-th" "pretty" "template-haskell"
