@@ -191,7 +191,7 @@ main = handleWeederException do
     >>= mainWithConfig hieExt hieDirectories requireHsFiles
   where
     throwConfigError e =
-      throwIO $ ExitConfigFailure (show e)
+      throwIO $ ExitConfigFailure (displayException e)
 
     decodeConfig noDefaultFields =
       if noDefaultFields
