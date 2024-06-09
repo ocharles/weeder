@@ -72,19 +72,21 @@ test-suite weeder-test
     , directory
     , filepath
     , ghc
-    , hspec
     , process
+    , tasty
+    , tasty-hunit-compat
+    , tasty-golden
     , text
     , toml-reader
     , weeder
+    , hspec-expectations
+    , text
+    , bytestring
   type: exitcode-stdio-1.0
-  main-is: Spec.hs
+  main-is: Main.hs
   hs-source-dirs: test
-  autogen-modules:
-    Paths_weeder
   other-modules:
     Paths_weeder
-    UnitTests
     -- Tests
     Spec.ApplicativeDo.ApplicativeDo
     Spec.BasicExample.BasicExample
