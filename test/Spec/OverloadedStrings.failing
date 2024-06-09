@@ -1,1 +1,1 @@
-test/Spec/OverloadedStrings/OverloadedStrings.hs:10:1: (Instance) :: IsString BetterString
+main: test/Spec/OverloadedStrings/OverloadedStrings.hs:10:1: (Instance) :: IsString BetterString

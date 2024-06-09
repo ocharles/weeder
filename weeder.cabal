@@ -85,6 +85,8 @@ test-suite weeder-test
   type: exitcode-stdio-1.0
   main-is: Main.hs
   hs-source-dirs: test
+  autogen-modules:
+    Paths_weeder
   other-modules:
     Paths_weeder
     -- Tests

@@ -21,6 +21,8 @@ import qualified Data.Map.Strict as Map
 -- ghc
 import GHC.Plugins 
   ( occNameString
+  , unitString
+  , moduleUnit
   , moduleName
   , moduleNameString 
   )
@@ -43,7 +45,8 @@ import Weeder.Config
 
 
 data Weed = Weed
-  { weedPath :: FilePath
+  { weedPackage :: String
+  , weedPath :: FilePath
   , weedLine :: Int
   , weedCol :: Int
   , weedDeclaration :: Declaration
@@ -53,7 +56,7 @@ data Weed = Weed
 
 formatWeed :: Weed -> String
 formatWeed Weed{..} =
-  weedPath <> ":" <> show weedLine <> ":" <> show weedCol <> ": "
+  weedPackage <> ": " <> weedPath <> ":" <> show weedLine <> ":" <> show weedCol <> ": "
     <> case weedPrettyPrintedType of
       Nothing -> occNameString ( declOccName weedDeclaration )
       Just t -> "(Instance) :: " <> t
@@ -114,16 +117,19 @@ runWeeder weederConfig@Config{ rootPatterns, typeClassRoots, rootInstances } hie
         ( \d ->
             fold $ do
               moduleFilePath <- Map.lookup ( declModule d ) ( modulePaths analysis )
+              let packageName = unitString . moduleUnit . declModule $ d
               starts <- Map.lookup d ( declarationSites analysis )
+              let locs = (,) packageName <$> Set.toList starts
               guard $ not $ null starts
-              return [ Map.singleton moduleFilePath ( liftA2 (,) (Set.toList starts) (pure d) ) ]
+              return [ Map.singleton moduleFilePath ( liftA2 (,) locs (pure d) ) ]
         )
         dead
 
     weeds =
       Map.toList warnings & concatMap \( weedPath, declarations ) ->
-        sortOn fst declarations & map \( (weedLine, weedCol) , weedDeclaration ) ->
+        sortOn fst declarations & map \( (weedPackage, (weedLine, weedCol)) , weedDeclaration ) ->
           Weed { weedPrettyPrintedType = Map.lookup weedDeclaration (prettyPrintedType analysis)
+               , weedPackage
                , weedPath
                , weedLine
                , weedCol
