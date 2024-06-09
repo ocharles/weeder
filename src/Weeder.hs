@@ -101,7 +101,7 @@ import GHC.Types.Name
   , isVarOcc
   , occNameString
   )
-import GHC.Types.SrcLoc ( RealSrcSpan, realSrcSpanEnd, realSrcSpanStart, srcLocLine )
+import GHC.Types.SrcLoc ( RealSrcSpan, realSrcSpanEnd, realSrcSpanStart, srcLocLine, srcLocCol )
 
 -- lens
 import Control.Lens ( (%=) )
@@ -157,7 +157,7 @@ data Analysis =
   Analysis
     { dependencyGraph :: Graph Declaration
       -- ^ A graph between declarations, capturing dependencies.
-    , declarationSites :: Map Declaration (Set Int)
+    , declarationSites :: Map Declaration (Set (Int, Int))
       -- ^ A partial mapping between declarations and their line numbers.
       -- This Map is partial as we don't always know where a Declaration was
       -- defined (e.g., it may come from a package without source code).
@@ -350,7 +350,9 @@ addInstanceRoot x t cls = do
 define :: MonadState Analysis m => Declaration -> RealSrcSpan -> m ()
 define decl span =
   when ( realSrcSpanStart span /= realSrcSpanEnd span ) do
-    #declarationSites %= Map.insertWith Set.union decl ( Set.singleton . srcLocLine $ realSrcSpanStart span )
+    let start = realSrcSpanStart span
+    let loc = (srcLocLine start, srcLocCol start)
+    #declarationSites %= Map.insertWith Set.union decl ( Set.singleton loc)
     #dependencyGraph %= overlay ( vertex decl )
 
 
