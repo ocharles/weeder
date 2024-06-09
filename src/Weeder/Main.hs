@@ -1,4 +1,5 @@
 {-# language ApplicativeDo #-}
+{-# language ScopedTypeVariables #-}
 {-# language BlockArguments #-}
 {-# language FlexibleContexts #-}
 {-# language NamedFieldPuns #-}
@@ -14,11 +15,11 @@ module Weeder.Main ( main, mainWithConfig, getHieFiles ) where
 import Control.Concurrent.Async ( async, link, ExceptionInLinkedThread ( ExceptionInLinkedThread ) )
 
 -- base
-import Control.Exception ( Exception, throwIO, displayException, catches, Handler ( Handler ), SomeException ( SomeException ) )
+import Control.Exception ( Exception, throwIO, displayException, catches, Handler ( Handler ), SomeException ( SomeException ))
 import Control.Concurrent ( getChanContents, newChan, writeChan, setNumCapabilities )
+import Data.List
 import Control.Monad ( unless, when )
 import Data.Foldable
-import Data.List ( isSuffixOf )
 import Data.Maybe ( isJust, catMaybes )
 import Data.Version ( showVersion )
 import System.Exit ( ExitCode(..), exitWith )
@@ -28,7 +29,7 @@ import System.IO ( stderr, hPutStrLn )
 import qualified TOML
 
 -- directory
-import System.Directory ( canonicalizePath, doesDirectoryExist, doesFileExist, doesPathExist, listDirectory, withCurrentDirectory )
+import System.Directory ( canonicalizePath, doesDirectoryExist, doesFileExist, listDirectory, withCurrentDirectory, pathIsSymbolicLink, getSymbolicLinkTarget )
 
 -- filepath
 import System.FilePath ( isExtensionOf )
@@ -234,7 +235,7 @@ mainWithConfig hieExt hieDirectories requireHsFiles weederConfig = handleWeederE
 -- Will rethrow exceptions as 'ExceptionInLinkedThread' to the calling thread.
 getHieFiles :: String -> [FilePath] -> Bool -> IO [HieFile]
 getHieFiles hieExt hieDirectories requireHsFiles = do
-  hieFilePaths <-
+  hieFilePaths :: [FilePath] <-
     concat <$>
       traverse ( getFilesIn hieExt )
         ( if null hieDirectories
@@ -242,7 +243,7 @@ getHieFiles hieExt hieDirectories requireHsFiles = do
           else hieDirectories
         )
 
-  hsFilePaths <-
+  hsFilePaths :: [FilePath] <-
     if requireHsFiles
       then getFilesIn ".hs" "./."
       else pure []
@@ -278,38 +279,43 @@ getFilesIn
   -> FilePath
   -- ^ Directory to look in
   -> IO [FilePath]
-getFilesIn ext path = do
-  exists <-
-    doesPathExist path
+getFilesIn ext relRoot = do
+  let -- call `canonicalizePath` and resolve sym links (up to a generous recursion depth).
+      hyperCanonicalizePath :: Int -> FilePath -> IO FilePath
+      hyperCanonicalizePath limit@30 _ = error $ "recursion limit of " <> show limit <> " reached, giving up!"
+      hyperCanonicalizePath n x0 = do
+        x1 <- canonicalizePath x0
+        x2 <- pathIsSymbolicLink x1
+        x3 <- if x2 then hyperCanonicalizePath (n+1) =<< getSymbolicLinkTarget x1 else pure x1
+        pure x3
 
-  if exists
-    then do
-      isFile <-
-        doesFileExist path
+  root <- hyperCanonicalizePath 0 relRoot
 
-      if isFile && ext `isExtensionOf` path
-        then do
-          path' <-
-            canonicalizePath path
+  let -- iterate over one file name in the search path(s).
+      go :: [FilePath] -> FilePath -> IO [FilePath]
+      go alreadyTraversed relPath = do
+        path <- hyperCanonicalizePath 0 relPath
 
-          return [ path' ]
+        -- if file, right extension, and not a super-directory: add to output
+        dfx <- doesFileExist path
+        let addPlease = dfx && ext `isExtensionOf` path && root `isPrefixOf` path
 
-        else do
-          isDir <-
-            doesDirectoryExist path
+        -- if directory, not already traversed, and not super-directory: recurse
+        ddx <- doesDirectoryExist path
+        let recursePlease = ddx && path `notElem` alreadyTraversed && root `isPrefixOf` path
 
-          if isDir
+        if addPlease
+          then pure [path]
+          else if recursePlease
             then do
-              cnts <-
-                listDirectory path
+              withCurrentDirectory path $ do
+                subdirs <- listDirectory "./."
+                result <- traverse (go (path : alreadyTraversed)) subdirs
+                pure $ mconcat result
+            else do
+              pure []
 
-              withCurrentDirectory path ( foldMap ( getFilesIn ext ) cnts )
-
-            else
-              return []
-
-    else
-      return []
+  go [] root 
 
 
 -- | Read a .hie file, exiting if it's an incompatible version.
