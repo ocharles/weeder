@@ -1,1 +1,1 @@
-test/Spec/RootClasses/RootClasses.hs:5: (Instance) :: Enum T
+main: test/Spec/RootClasses/RootClasses.hs:5:34: (Instance) :: Enum T

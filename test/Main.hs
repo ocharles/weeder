@@ -1,9 +1,12 @@
+module Main (main) where
+
 import qualified Weeder.Main
 import qualified Weeder.Run
 import qualified Weeder
 import qualified TOML
-import qualified UnitTests
+import qualified UnitTests.Weeder.ConfigSpec
 
+import Data.Maybe
 import Algebra.Graph.Export.Dot
 import GHC.Types.Name.Occurrence (occNameString)
 import System.Directory
@@ -11,28 +14,32 @@ import System.Environment (getArgs, withArgs)
 import System.FilePath
 import System.Process
 import System.IO (stderr, hPrint)
-import Test.Hspec
+import Test.Tasty (TestTree, defaultMain, testGroup)
 import Control.Monad (zipWithM_, when)
 import Control.Exception ( throwIO, IOException, handle )
 import Data.Maybe (isJust)
 import Data.List (find, sortOn)
+import Data.ByteString (ByteString)
+import qualified Data.ByteString.Lazy as LBS
+import Data.Text (Text, pack)
+import Data.Text.Encoding (encodeUtf8)
+import Test.Tasty.Golden
 
 main :: IO ()
 main = do
-  args <- getArgs
   testOutputFiles <- fmap sortTests discoverIntegrationTests
   let hieDirectories = map (dropExtension . snd) testOutputFiles
-      drawDots = mapM_ (drawDot . (<.> ".dot")) hieDirectories
-      graphviz = "--graphviz" `elem` args
-  withArgs (filter (/="--graphviz") args) $
-    hspec $ afterAll_ (when graphviz drawDots) $ do
-      describe "Weeder.Run" $
-        describe "runWeeder" $
-          zipWithM_ (uncurry integrationTestSpec) testOutputFiles hieDirectories
-      UnitTests.spec
+  defaultMain $ 
+    testGroup "Weeder"
+      [ testGroup "Weeder.Run" $
+          [ testGroup "runWeeder" $
+              zipWith (uncurry integrationTest) 
+                testOutputFiles 
+                hieDirectories
+          ]
+      , UnitTests.Weeder.ConfigSpec.tests 
+      ]
   where
-    -- Draw a dotfile via graphviz
-    drawDot f = callCommand $ "dot -Tpng " ++ f ++ " -o " ++ (f -<.> ".png")
     -- Sort the output files such that the failing ones go last
     sortTests = sortOn (isJust . fst)
 
@@ -44,18 +51,10 @@ main = do
 -- If @failingFile@ is @Just@, it is used as the expected output instead of
 -- @stdoutFile@, and a different failure message is printed if the output
 -- matches @stdoutFile@.
-integrationTestSpec :: Maybe FilePath -> FilePath -> FilePath -> Spec
-integrationTestSpec failingFile stdoutFile hieDirectory = do
-  it (integrationTestText ++ hieDirectory) $ do
-    expectedOutput <- readFile stdoutFile
-    actualOutput <- integrationTestOutput hieDirectory
-    case failingFile of
-      Just f -> do
-        failingOutput <- readFile f
-        actualOutput `shouldNotBe` expectedOutput
-        actualOutput `shouldBe` failingOutput
-      Nothing ->
-        actualOutput `shouldBe` expectedOutput
+integrationTest :: Maybe FilePath -> FilePath -> FilePath -> TestTree
+integrationTest failingFile stdoutFile hieDirectory = do
+  goldenVsString (integrationTestText ++ hieDirectory) (fromMaybe stdoutFile failingFile) $ 
+    integrationTestOutput hieDirectory
   where
     integrationTestText = case failingFile of
       Nothing -> "produces the expected output for "
@@ -74,15 +73,15 @@ discoverIntegrationTests = do
 
 -- | Run weeder on the given directory for .hie files, returning stdout
 -- Also creates a dotfile containing the dependency graph as seen by Weeder
-integrationTestOutput :: FilePath -> IO String
+integrationTestOutput :: FilePath -> IO LBS.ByteString
 integrationTestOutput hieDirectory = do
-  hieFiles <- Weeder.Main.getHieFiles ".hie" [hieDirectory] True
+  hieFiles <- Weeder.Main.getHieFiles ".hie" [hieDirectory] False
   weederConfig <- TOML.decodeFile configExpr >>= either throwIO pure
   let (weeds, analysis) = Weeder.Run.runWeeder weederConfig hieFiles
       graph = Weeder.dependencyGraph analysis
       graph' = export (defaultStyle (occNameString . Weeder.declOccName)) graph
   handle (\e -> hPrint stderr (e :: IOException)) $
     writeFile (hieDirectory <.> ".dot") graph'
-  pure (unlines $ map Weeder.Run.formatWeed weeds)
+  pure (LBS.fromStrict $ encodeUtf8 $ pack $ unlines $ map Weeder.Run.formatWeed weeds)
   where
     configExpr = hieDirectory <.> ".toml"

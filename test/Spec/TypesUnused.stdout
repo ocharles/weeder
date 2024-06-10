@@ -1,4 +1,4 @@
-test/Spec/TypesUnused/TypesUnused.hs:6: Modulo1
-test/Spec/TypesUnused/TypesUnused.hs:8: Number
-test/Spec/TypesUnused/TypesUnused.hs:10: Vector
-test/Spec/TypesUnused/TypesUnused.hs:12: Family
+main: test/Spec/TypesUnused/TypesUnused.hs:6:1: Modulo1
+main: test/Spec/TypesUnused/TypesUnused.hs:8:1: Number
+main: test/Spec/TypesUnused/TypesUnused.hs:10:1: Vector
+main: test/Spec/TypesUnused/TypesUnused.hs:12:1: Family

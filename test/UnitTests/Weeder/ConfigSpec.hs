@@ -1,20 +1,19 @@
-module UnitTests.Weeder.ConfigSpec (spec) where
+module UnitTests.Weeder.ConfigSpec (tests) where
 
 import Weeder.Config
 import qualified TOML
 import qualified Data.Text as T
-import Test.Hspec (Spec, describe, it)
+import Test.Tasty.HUnit
+import Test.Hspec.Expectations (shouldBe)
+import Test.Tasty (TestTree, testGroup)
 
-spec :: Spec
-spec = 
-  describe "Weeder.Config" $
-    describe "configToToml" $
-      it "passes prop_configToToml" prop_configToToml
+tests :: TestTree
+tests = 
+  testGroup "Weeder.Config"
+    [ testCase "configToToml" configToTomlTests ]
 
--- >>> prop_configToToml
--- True
-prop_configToToml :: Bool
-prop_configToToml =
+configToTomlTests :: Assertion
+configToTomlTests =
   let cf = Config
         { rootPatterns = mempty
         , typeClassRoots = True
@@ -23,4 +22,4 @@ prop_configToToml =
         , rootModules = ["Foo\\.Bar", "Baz"]
         }
       cf' = T.pack $ configToToml cf
-   in TOML.decode cf' == Right cf
+   in TOML.decode cf' `shouldBe` Right cf

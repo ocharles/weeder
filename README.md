@@ -26,7 +26,7 @@ If you use Cabal, this is easily done by adding one line to your
 `cabal.project.local` file:
 
 ``` cabal
-package *
+program-options
   ghc-options: -fwrite-ide-info
 ```
 

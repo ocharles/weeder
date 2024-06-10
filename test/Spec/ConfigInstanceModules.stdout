@@ -1,2 +1,2 @@
-test/Spec/ConfigInstanceModules/Module1.hs:3: (Instance) :: Show T
-test/Spec/ConfigInstanceModules/Module2.hs:3: (Instance) :: Bounded T
+main: test/Spec/ConfigInstanceModules/Module1.hs:3:24: (Instance) :: Show T
+main: test/Spec/ConfigInstanceModules/Module2.hs:3:30: (Instance) :: Bounded T

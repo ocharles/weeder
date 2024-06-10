@@ -1,1 +1,1 @@
-test/Spec/RangeEnum/RangeEnum.hs:14: (Instance) :: Enum Colour
+main: test/Spec/RangeEnum/RangeEnum.hs:14:13: (Instance) :: Enum Colour

@@ -1,3 +1,3 @@
-test/Spec/Monads/Monads.hs:20: (Instance) :: Functor Identity'
-test/Spec/Monads/Monads.hs:23: (Instance) :: Applicative Identity'
-test/Spec/Monads/Monads.hs:27: (Instance) :: Monad Identity'
+main: test/Spec/Monads/Monads.hs:20:1: (Instance) :: Functor Identity'
+main: test/Spec/Monads/Monads.hs:23:1: (Instance) :: Applicative Identity'
+main: test/Spec/Monads/Monads.hs:27:1: (Instance) :: Monad Identity'
