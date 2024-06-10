@@ -24,14 +24,17 @@ import Data.Version ( showVersion )
 import System.Exit ( ExitCode(..), exitWith )
 import System.IO ( stderr, hPutStrLn )
 
+-- directory-contents
+import System.Directory.Contents (buildDirTree, pruneDirTree, filterDirTree)
+
 -- toml-reader
 import qualified TOML
 
 -- directory
-import System.Directory ( canonicalizePath, doesDirectoryExist, doesFileExist, doesPathExist, listDirectory, withCurrentDirectory )
+import System.Directory ( doesFileExist )
 
 -- filepath
-import System.FilePath ( isExtensionOf )
+import System.FilePath ( takeExtension )
 
 -- ghc
 import GHC.Iface.Ext.Binary ( HieFileResult( HieFileResult, hie_file_result ), readHieFileWithVersion )
@@ -278,38 +281,12 @@ getFilesIn
   -> FilePath
   -- ^ Directory to look in
   -> IO [FilePath]
-getFilesIn ext path = do
-  exists <-
-    doesPathExist path
-
-  if exists
-    then do
-      isFile <-
-        doesFileExist path
-
-      if isFile && ext `isExtensionOf` path
-        then do
-          path' <-
-            canonicalizePath path
-
-          return [ path' ]
-
-        else do
-          isDir <-
-            doesDirectoryExist path
-
-          if isDir
-            then do
-              cnts <-
-                listDirectory path
-
-              withCurrentDirectory path ( foldMap ( getFilesIn ext ) cnts )
-
-            else
-              return []
-
-    else
-      return []
+getFilesIn ext basePath = do
+  dirTree <- buildDirTree basePath
+  pure $ maybe [] toList do
+   pruneDirTree 
+     =<< filterDirTree ((ext ==) . takeExtension)
+     =<< dirTree
 
 
 -- | Read a .hie file, exiting if it's an incompatible version.
