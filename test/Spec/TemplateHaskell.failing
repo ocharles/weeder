@@ -1,5 +1,3 @@
-main: test/Spec/TemplateHaskell/TH.hs:7:1: oneQ
-main: test/Spec/TemplateHaskell/TH.hs:10:1: one
 main: test/Spec/TemplateHaskell/TH.hs:13:1: intQQ
 main: test/Spec/TemplateHaskell/TH.hs:21:1: zero1
 main: test/Spec/TemplateHaskell/TH.hs:24:1: zero2
