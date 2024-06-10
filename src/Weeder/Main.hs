@@ -1,42 +1,38 @@
-{-# language ApplicativeDo #-}
-{-# language BlockArguments #-}
-{-# language FlexibleContexts #-}
-{-# language NamedFieldPuns #-}
-{-# language OverloadedStrings #-}
-{-# language LambdaCase #-}
-{-# language RecordWildCards #-}
+{-# LANGUAGE ApplicativeDo #-}
+{-# LANGUAGE BlockArguments #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
 
 -- | This module provides an entry point to the Weeder executable.
-
-module Weeder.Main ( main, mainWithConfig, getHieFiles ) where
+module Weeder.Main (main, mainWithConfig, getHieFiles) where
 
 -- async
-import Control.Concurrent.Async ( async, link, ExceptionInLinkedThread ( ExceptionInLinkedThread ) )
+import Control.Concurrent.Async (ExceptionInLinkedThread (ExceptionInLinkedThread), async, link)
 
 -- base
-import Control.Exception ( Exception, throwIO, displayException, catches, Handler ( Handler ), SomeException ( SomeException ) )
-import Control.Concurrent ( getChanContents, newChan, writeChan, setNumCapabilities )
-import Control.Monad ( unless, when )
+import Control.Concurrent (getChanContents, newChan, setNumCapabilities, writeChan)
+import Control.Exception (Exception, Handler (Handler), SomeException (SomeException), catches, displayException, throwIO)
+import Control.Monad (unless, when)
 import Data.Foldable
-import Data.List ( isSuffixOf )
-import Data.Maybe ( isJust, catMaybes )
-import Data.Version ( showVersion )
-import System.Exit ( ExitCode(..), exitWith )
-import System.IO ( stderr, hPutStrLn )
-
--- toml-reader
-import qualified TOML
+import Data.List (isSuffixOf)
+import Data.Maybe (catMaybes, isJust)
+import Data.Version (showVersion)
+import System.Exit (ExitCode (..), exitWith)
+import System.IO (hPutStrLn, stderr)
 
 -- directory
-import System.Directory ( canonicalizePath, doesDirectoryExist, doesFileExist, doesPathExist, listDirectory, withCurrentDirectory )
+import System.Directory (canonicalizePath, doesDirectoryExist, doesFileExist, doesPathExist, listDirectory, withCurrentDirectory)
 
 -- filepath
-import System.FilePath ( isExtensionOf )
+import System.FilePath (isExtensionOf)
 
 -- ghc
-import GHC.Iface.Ext.Binary ( HieFileResult( HieFileResult, hie_file_result ), readHieFileWithVersion )
-import GHC.Iface.Ext.Types ( HieFile( hie_hs_file ), hieVersion )
-import GHC.Types.Name.Cache ( initNameCache, NameCache )
+import GHC.Iface.Ext.Binary (HieFileResult (HieFileResult, hie_file_result), readHieFileWithVersion)
+import GHC.Iface.Ext.Types (HieFile (hie_hs_file), hieVersion)
+import GHC.Types.Name.Cache (NameCache, initNameCache)
 
 -- optparse-applicative
 import Options.Applicative
@@ -44,22 +40,28 @@ import Options.Applicative
 -- text
 import qualified Data.Text.IO as T
 
+-- toml-reader
+import qualified TOML
+
 -- weeder
-import Weeder.Run
-import Weeder.Config
 import Paths_weeder (version)
+import Weeder.Config
+import Weeder.Run
 
 
 -- | Each exception corresponds to an exit code.
-data WeederException 
+data WeederException
   = ExitNoHieFilesFailure
-  | ExitHieVersionFailure 
-      FilePath -- ^ Path to HIE file
-      Integer -- ^ HIE file's header version
-  | ExitConfigFailure
-      String -- ^ Error message
+  | ExitHieVersionFailure
+      FilePath
+      -- ^ Path to HIE file
+      Integer
+      -- ^ HIE file's header version
+  | -- | Error message
+    ExitConfigFailure
+      String
   | ExitWeedsFound
-  deriving Show
+  deriving (Show)
 
 
 weederExitCode :: WeederException -> ExitCode
@@ -77,33 +79,35 @@ instance Exception WeederException where
     ExitConfigFailure s -> s
     ExitWeedsFound -> mempty
     where
-
-      noHieFilesFoundMessage =  
+      noHieFilesFoundMessage =
         "No HIE files found: check that the directory is correct "
-        <> "and that the -fwrite-ide-info compilation flag is set."
+          <> "and that the -fwrite-ide-info compilation flag is set."
 
-      hieVersionMismatchMessage path v = unlines
-        [ "incompatible hie file: " <> path
-        , "    this version of weeder was compiled with GHC version "
-          <> show hieVersion
-        , "    the hie files in this project were generated with GHC version "
-          <> show v
-        , "    weeder must be built with the same GHC version"
-          <> " as the project it is used on"
-        ]
+      hieVersionMismatchMessage path v =
+        unlines
+          [ "incompatible hie file: " <> path
+          , "    this version of weeder was compiled with GHC version "
+              <> show hieVersion
+          , "    the hie files in this project were generated with GHC version "
+              <> show v
+          , "    weeder must be built with the same GHC version"
+              <> " as the project it is used on"
+          ]
 
 
--- | Convert 'WeederException' to the corresponding 'ExitCode' and emit an error 
--- message to stderr.
---
--- Additionally, unwrap 'ExceptionInLinkedThread' exceptions: this is for
--- 'getHieFiles'.
+{- | Convert 'WeederException' to the corresponding 'ExitCode' and emit an error
+message to stderr.
+
+Additionally, unwrap 'ExceptionInLinkedThread' exceptions: this is for
+'getHieFiles'.
+-}
 handleWeederException :: IO a -> IO a
-handleWeederException a = catches a handlers 
+handleWeederException a = catches a handlers
   where
-    handlers = [ Handler rethrowExits
-               , Handler unwrapLinks
-               ]
+    handlers =
+      [ Handler rethrowExits
+      , Handler unwrapLinks
+      ]
     rethrowExits w = do
       hPutStrLn stderr (displayException w)
       exitWith (weederExitCode w)
@@ -124,53 +128,66 @@ data CLIArguments = CLIArguments
 
 parseCLIArguments :: Parser CLIArguments
 parseCLIArguments = do
-    configPath <- strOption
-        ( long "config"
-            <> help "A file path for Weeder's configuration."
-            <> value "./weeder.toml"
-            <> metavar "<weeder.toml>"
-        )
-    hieExt <- strOption
-        ( long "hie-extension"
-            <> value ".hie"
-            <> help "Extension of HIE files"
-            <> showDefault
-        )
-    hieDirectories <- many (
-        strOption
-            ( long "hie-directory"
-                <> help "A directory to look for .hie files in. Maybe specified multiple times. Default ./."
-            )
-        )
-    requireHsFiles <- switch
-          ( long "require-hs-files"
-              <> help "Skip stale .hie files with no matching .hs modules"
+  configPath <-
+    strOption
+      ( long "config"
+          <> help "A file path for Weeder's configuration."
+          <> value "./weeder.toml"
+          <> metavar "<weeder.toml>"
+      )
+  hieExt <-
+    strOption
+      ( long "hie-extension"
+          <> value ".hie"
+          <> help "Extension of HIE files"
+          <> showDefault
+      )
+  hieDirectories <-
+    many
+      ( strOption
+          ( long "hie-directory"
+              <> help "A directory to look for .hie files in. Maybe specified multiple times. Default ./."
           )
-    writeDefaultConfig <- switch
-          ( long "write-default-config"
-              <> help "Write a default configuration file if the one specified by --config does not exist"
-          )
-    noDefaultFields <- switch
-          ( long "no-default-fields"
-              <> help "Do not use default field values for missing fields in the configuration."
-          )
-    capabilities <- nParser <|> jParser
-    pure CLIArguments{..}
-    where
-      jParser = Just <$> option auto
+      )
+  requireHsFiles <-
+    switch
+      ( long "require-hs-files"
+          <> help "Skip stale .hie files with no matching .hs modules"
+      )
+  writeDefaultConfig <-
+    switch
+      ( long "write-default-config"
+          <> help "Write a default configuration file if the one specified by --config does not exist"
+      )
+  noDefaultFields <-
+    switch
+      ( long "no-default-fields"
+          <> help "Do not use default field values for missing fields in the configuration."
+      )
+  capabilities <- nParser <|> jParser
+  pure CLIArguments{..}
+  where
+    jParser =
+      Just
+        <$> option
+          auto
           ( short 'j'
               <> value 1
               <> help "Number of cores to use."
-              <> showDefault)
-      nParser = flag' Nothing
-          ( short 'N'
-              <> help "Use all available cores."
+              <> showDefault
           )
+    nParser =
+      flag'
+        Nothing
+        ( short 'N'
+            <> help "Use all available cores."
+        )
 
 
--- | Parse command line arguments and into a 'Config' and run 'mainWithConfig'.
---
--- Exits with one of the listed Weeder exit codes on failure.
+{- | Parse command line arguments and into a 'Config' and run 'mainWithConfig'.
+
+Exits with one of the listed Weeder exit codes on failure.
+-}
 main :: IO ()
 main = handleWeederException do
   CLIArguments{..} <-
@@ -198,19 +215,23 @@ main = handleWeederException do
         then fmap (TOML.decodeWith decodeNoDefaults) . T.readFile
         else TOML.decodeFile
 
-    versionP = infoOption ( "weeder version "
-                            <> showVersion version
-                            <> "\nhie version "
-                            <> show hieVersion )
-        ( long "version" <> help "Show version" )
+    versionP =
+      infoOption
+        ( "weeder version "
+            <> showVersion version
+            <> "\nhie version "
+            <> show hieVersion
+        )
+        (long "version" <> help "Show version")
 
 
--- | Run Weeder in the current working directory with a given 'Config'.
---
--- This will recursively find all files with the given extension in the given directories, perform
--- analysis, and report all unused definitions according to the 'Config'.
---
--- Exits with one of the listed Weeder exit codes on failure.
+{- | Run Weeder in the current working directory with a given 'Config'.
+
+This will recursively find all files with the given extension in the given directories, perform
+analysis, and report all unused definitions according to the 'Config'.
+
+Exits with one of the listed Weeder exit codes on failure.
+-}
 mainWithConfig :: String -> [FilePath] -> Bool -> Config -> IO ()
 mainWithConfig hieExt hieDirectories requireHsFiles weederConfig = handleWeederException do
   hieFiles <-
@@ -227,19 +248,21 @@ mainWithConfig hieExt hieDirectories requireHsFiles weederConfig = handleWeederE
   unless (null weeds) $ throwIO ExitWeedsFound
 
 
--- | Find and read all .hie files in the given directories according to the given parameters,
--- exiting if any are incompatible with the current version of GHC.
--- The .hie files are returned as a lazy stream in the form of a list.
---
--- Will rethrow exceptions as 'ExceptionInLinkedThread' to the calling thread.
+{- | Find and read all .hie files in the given directories according to the given parameters,
+exiting if any are incompatible with the current version of GHC.
+The .hie files are returned as a lazy stream in the form of a list.
+
+Will rethrow exceptions as 'ExceptionInLinkedThread' to the calling thread.
+-}
 getHieFiles :: String -> [FilePath] -> Bool -> IO [HieFile]
 getHieFiles hieExt hieDirectories requireHsFiles = do
   hieFilePaths <-
-    concat <$>
-      traverse ( getFilesIn hieExt )
+    concat
+      <$> traverse
+        (getFilesIn hieExt)
         ( if null hieDirectories
-          then ["./."]
-          else hieDirectories
+            then ["./."]
+            else hieDirectories
         )
 
   hsFilePaths <-
@@ -255,29 +278,27 @@ getHieFiles hieExt hieDirectories requireHsFiles = do
   a <- async $ handleWeederException do
     readHieFiles nameCache hieFilePaths hieFileResultsChan hsFilePaths
     writeChan hieFileResultsChan Nothing
- 
+
   link a
 
   catMaybes . takeWhile isJust <$> getChanContents hieFileResultsChan
-
   where
-
     readHieFiles nameCache hieFilePaths hieFileResultsChan hsFilePaths =
       for_ hieFilePaths \hieFilePath -> do
         hieFileResult <-
           readCompatibleHieFileOrExit nameCache hieFilePath
-        let hsFileExists = any ( hie_hs_file hieFileResult `isSuffixOf` ) hsFilePaths
+        let hsFileExists = any (hie_hs_file hieFileResult `isSuffixOf`) hsFilePaths
         when (requireHsFiles ==> hsFileExists) $
           writeChan hieFileResultsChan (Just hieFileResult)
 
 
 -- | Recursively search for files with the given extension in given directory
-getFilesIn
-  :: String
-  -- ^ Only files with this extension are considered
-  -> FilePath
-  -- ^ Directory to look in
-  -> IO [FilePath]
+getFilesIn ::
+  -- | Only files with this extension are considered
+  String ->
+  -- | Directory to look in
+  FilePath ->
+  IO [FilePath]
 getFilesIn ext path = do
   exists <-
     doesPathExist path
@@ -292,8 +313,7 @@ getFilesIn ext path = do
           path' <-
             canonicalizePath path
 
-          return [ path' ]
-
+          return [path']
         else do
           isDir <-
             doesDirectoryExist path
@@ -303,13 +323,9 @@ getFilesIn ext path = do
               cnts <-
                 listDirectory path
 
-              withCurrentDirectory path ( foldMap ( getFilesIn ext ) cnts )
-
-            else
-              return []
-
-    else
-      return []
+              withCurrentDirectory path (foldMap (getFilesIn ext) cnts)
+            else return []
+    else return []
 
 
 -- | Read a .hie file, exiting if it's an incompatible version.
@@ -317,9 +333,9 @@ readCompatibleHieFileOrExit :: NameCache -> FilePath -> IO HieFile
 readCompatibleHieFileOrExit nameCache path = do
   res <- readHieFileWithVersion (\(v, _) -> v == hieVersion) nameCache path
   case res of
-    Right HieFileResult{ hie_file_result } ->
+    Right HieFileResult{hie_file_result} ->
       return hie_file_result
-    Left ( v, _ghcVersion ) ->
+    Left (v, _ghcVersion) ->
       throwIO $ ExitHieVersionFailure path v
 
 
@@ -328,5 +344,5 @@ infixr 5 ==>
 
 -- | An infix operator for logical implication
 (==>) :: Bool -> Bool -> Bool
-True  ==> x = x
+True ==> x = x
 False ==> _ = True

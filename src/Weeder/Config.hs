@@ -1,46 +1,47 @@
-{-# language ApplicativeDo #-}
-{-# language BlockArguments #-}
-{-# language OverloadedStrings #-}
-{-# language RecordWildCards #-}
-{-# language LambdaCase #-}
-{-# language PatternSynonyms #-}
-{-# language FlexibleInstances #-}
-{-# language DeriveTraversable #-}
-{-# language NamedFieldPuns #-}
+{-# LANGUAGE ApplicativeDo #-}
+{-# LANGUAGE BlockArguments #-}
+{-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE RecordWildCards #-}
 
-module Weeder.Config
-  ( -- * Config
-    Config
-  , ConfigParsed
-  , ConfigType(..)
-  , compileConfig
-  , configToToml
-  , decodeNoDefaults
-  , defaultConfig
-    -- * Marking instances as roots
-  , InstancePattern
-  , modulePattern
-  , instancePattern
-  , classPattern
-  , pattern InstanceOnly
-  , pattern ClassOnly
-  , pattern ModuleOnly
-  )
-   where
+module Weeder.Config (
+  -- * Config
+  Config,
+  ConfigParsed,
+  ConfigType (..),
+  compileConfig,
+  configToToml,
+  decodeNoDefaults,
+  defaultConfig,
+
+  -- * Marking instances as roots
+  InstancePattern,
+  modulePattern,
+  instancePattern,
+  classPattern,
+  pattern InstanceOnly,
+  pattern ClassOnly,
+  pattern ModuleOnly,
+)
+where
 
 -- base
-import Control.Applicative ((<|>), empty)
+import Control.Applicative (empty, (<|>))
 import Data.Bifunctor (bimap)
 import Data.Char (toLower)
-import Data.List (intersperse, intercalate)
+import Data.List (intercalate, intersperse)
 
 -- containers
 import Data.Containers.ListUtils (nubOrd)
 
 -- regex-tdfa
-import Text.Regex.TDFA ( Regex, RegexOptions ( defaultExecOpt, defaultCompOpt ) )
-import Text.Regex.TDFA.TDFA ( patternToRegex )
-import Text.Regex.TDFA.ReadRegex ( parseRegex )
+import Text.Regex.TDFA (Regex, RegexOptions (defaultCompOpt, defaultExecOpt))
+import Text.Regex.TDFA.ReadRegex (parseRegex)
+import Text.Regex.TDFA.TDFA (patternToRegex)
 
 -- toml-reader
 import qualified TOML
@@ -50,37 +51,41 @@ import qualified TOML
 type Config = ConfigType Regex
 
 
--- | Configuration that has been parsed from TOML (and can still be 
--- converted back), but not yet compiled to a 'Config'.
+{- | Configuration that has been parsed from TOML (and can still be
+converted back), but not yet compiled to a 'Config'.
+-}
 type ConfigParsed = ConfigType String
 
 
 -- | Underlying type for 'Config' and 'ConfigParsed'.
 data ConfigType a = Config
   { rootPatterns :: [a]
-    -- ^ Any declarations matching these regular expressions will be added to
-    -- the root set.
+  -- ^ Any declarations matching these regular expressions will be added to
+  -- the root set.
   , typeClassRoots :: Bool
-    -- ^ If True, consider all declarations in a type class as part of the root
-    -- set. Overrides root-instances.
+  -- ^ If True, consider all declarations in a type class as part of the root
+  -- set. Overrides root-instances.
   , rootInstances :: [InstancePattern a]
-    -- ^ All matching instances will be added to the root set. An absent field
-    -- will always match.
+  -- ^ All matching instances will be added to the root set. An absent field
+  -- will always match.
   , unusedTypes :: Bool
-    -- ^ Toggle to look for and output unused types. Type family instances will
-    -- be marked as implicit roots.
-  } deriving (Eq, Show)
+  -- ^ Toggle to look for and output unused types. Type family instances will
+  -- be marked as implicit roots.
+  }
+  deriving (Eq, Show)
 
 
--- | Construct via InstanceOnly, ClassOnly or ModuleOnly, 
--- and combine with the Semigroup instance. The Semigroup
--- instance ignores duplicate fields, prioritising the 
--- left argument.
+{- | Construct via InstanceOnly, ClassOnly or ModuleOnly,
+and combine with the Semigroup instance. The Semigroup
+instance ignores duplicate fields, prioritising the
+left argument.
+-}
 data InstancePattern a = InstancePattern
   { instancePattern :: Maybe a
   , classPattern :: Maybe a
   , modulePattern :: Maybe a
-  } deriving (Eq, Show, Ord, Functor, Foldable, Traversable)
+  }
+  deriving (Eq, Show, Ord, Functor, Foldable, Traversable)
 
 
 instance Semigroup (InstancePattern a) where
@@ -95,12 +100,13 @@ pattern ModuleOnly m = InstancePattern Nothing Nothing (Just m)
 
 
 defaultConfig :: ConfigParsed
-defaultConfig = Config
-  { rootPatterns = [ "Main.main", "^Paths_.*"]
-  , typeClassRoots = False
-  , rootInstances = [ ClassOnly "\\.IsString$", ClassOnly "\\.IsList$" ]
-  , unusedTypes = False
-  }
+defaultConfig =
+  Config
+    { rootPatterns = ["Main.main", "^Paths_.*"]
+    , typeClassRoots = False
+    , rootInstances = [ClassOnly "\\.IsString$", ClassOnly "\\.IsList$"]
+    , unusedTypes = False
+    }
 
 
 instance TOML.DecodeTOML Config where
@@ -113,7 +119,7 @@ instance TOML.DecodeTOML ConfigParsed where
   tomlDecoder = do
     rootPatterns <- TOML.getFieldOr (rootPatterns defaultConfig) "roots"
     typeClassRoots <- TOML.getFieldOr (typeClassRoots defaultConfig) "type-class-roots"
-    rootInstances <- TOML.getFieldOr (rootInstances defaultConfig) "root-instances" 
+    rootInstances <- TOML.getFieldOr (rootInstances defaultConfig) "root-instances"
     unusedTypes <- TOML.getFieldOr (unusedTypes defaultConfig) "unused-types"
 
     pure Config{..}
@@ -133,22 +139,21 @@ instance TOML.DecodeTOML (InstancePattern String) where
   tomlDecoder = decodeInstancePattern
 
 
--- | Decoder for a value of any of the forms:
---
--- @{instance = t, class = c, module = m} -> InstanceClassAndModule t c m@
---
--- @a -> InstanceOnly a@
---
--- @{instance = t} -> InstanceOnly t@
---
--- @{class = m} -> ClassOnly c@
---
--- etc.
+{- | Decoder for a value of any of the forms:
+
+@{instance = t, class = c, module = m} -> InstanceClassAndModule t c m@
+
+@a -> InstanceOnly a@
+
+@{instance = t} -> InstanceOnly t@
+
+@{class = m} -> ClassOnly c@
+
+etc.
+-}
 decodeInstancePattern :: TOML.Decoder (InstancePattern String)
 decodeInstancePattern = decodeTable <|> decodeStringLiteral <|> decodeInstanceError
-
   where
-
     decodeStringLiteral = InstanceOnly <$> TOML.tomlDecoder
 
     decodeTable = do
@@ -157,16 +162,18 @@ decodeInstancePattern = decodeTable <|> decodeStringLiteral <|> decodeInstanceEr
       m <- fmap ModuleOnly <$> TOML.getFieldOpt "module"
       maybe empty pure (t <> c <> m)
 
-    decodeInstanceError = TOML.makeDecoder $
-      TOML.invalidValue "Need to specify at least one of 'instance', 'class', or 'module'"
+    decodeInstanceError =
+      TOML.makeDecoder $
+        TOML.invalidValue "Need to specify at least one of 'instance', 'class', or 'module'"
 
 
-showInstancePattern :: Show a => InstancePattern a -> String
+showInstancePattern :: (Show a) => InstancePattern a -> String
 showInstancePattern = \case
   InstanceOnly a -> show a
   p -> "{ " ++ table ++ " }"
     where
-      table = intercalate ", " . filter (not . null) $
+      table =
+        intercalate ", " . filter (not . null) $
           [ maybe mempty typeField (instancePattern p)
           , maybe mempty classField (classPattern p)
           , maybe mempty moduleField (modulePattern p)
@@ -181,19 +188,19 @@ compileRegex = bimap show (\p -> patternToRegex p defaultCompOpt defaultExecOpt)
 
 
 compileConfig :: ConfigParsed -> Either String Config
-compileConfig conf@Config{ rootInstances, rootPatterns } = do
+compileConfig conf@Config{rootInstances, rootPatterns} = do
   rootInstances' <- traverse (traverse compileRegex) . nubOrd $ rootInstances
   rootPatterns' <- traverse compileRegex $ nubOrd rootPatterns
-  pure conf{ rootInstances = rootInstances', rootPatterns = rootPatterns' }
+  pure conf{rootInstances = rootInstances', rootPatterns = rootPatterns'}
 
 
 configToToml :: ConfigParsed -> String
-configToToml Config{..}
-  = unlines . intersperse mempty $
-      [ "roots = " ++ show rootPatterns
-      , "type-class-roots = " ++ map toLower (show typeClassRoots)
-      , "root-instances = " ++ "[" ++ intercalate "," (map showInstancePattern rootInstances') ++ "]"
-      , "unused-types = " ++ map toLower (show unusedTypes)
-      ]
+configToToml Config{..} =
+  unlines . intersperse mempty $
+    [ "roots = " ++ show rootPatterns
+    , "type-class-roots = " ++ map toLower (show typeClassRoots)
+    , "root-instances = " ++ "[" ++ intercalate "," (map showInstancePattern rootInstances') ++ "]"
+    , "unused-types = " ++ map toLower (show unusedTypes)
+    ]
   where
     rootInstances' = rootInstances
