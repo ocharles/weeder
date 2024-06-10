@@ -95,7 +95,8 @@ in the Dhall project).
 | ---------------- | ------------------------------------ | --- |
 | roots            | `[ "Main.main", "^Paths_weeder.*" ]` | Any declarations matching these regular expressions will be considered as alive. |
 | type-class-roots | `false`                              | Consider all instances of type classes as roots. Overrides `root-instances`. |
-| root-instances   | `[ {class = '\.IsString$'}, {class = '\.IsList$'} ]` | Type class instances that match on all specified fields will be considered as roots. Accepts the fields `instance` matching on the pretty-printed type of the instance (visible in the output), `class` matching on its parent class declaration, and `module` matching on the module the instance is in. |
+| root-instances   | `[ {class = '\.IsString$'}, {class = '\.IsList$'} ]` | Type class instances that match on all specified fields will be considered as roots. Accepts the fields `instance` matching on the pretty-printed type of the instance (visible in the output), `class` matching on its parent class declaration, and `module` matching on the module the instance is defined in. |
+| root-modules     | `[]`                                 | The exports of all matching modules will be considered as alive. This does not include type class instances implicitly exported by the module.
 | unused-types     | `false`                              | Enable analysis of unused types. |
 
 `root-instances` can also accept string literals as a shorthand for writing a table
