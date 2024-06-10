@@ -1,4 +1,4 @@
-module Spec.TemplateHaskell.TH (intQQ, oneQ, twoQ, two) where
+module Spec.TemplateHaskell.TH (intQQ, oneQ, twoQ, two, three, threeQ) where
 
 import Language.Haskell.TH
 import Language.Haskell.TH.Quote
@@ -14,6 +14,12 @@ two = 2
 
 twoQ :: Q Exp
 twoQ = pure . VarE $ mkName "two"
+
+three :: Int
+three = 3
+
+threeQ :: Q [Dec]
+threeQ = pure [ValD (VarP $ mkName "three'") (NormalB . VarE $ mkName "three") []]
 
 intQQ :: QuasiQuoter
 intQQ = QuasiQuoter 

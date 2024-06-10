@@ -1,5 +1,6 @@
-main: test/Spec/TemplateHaskell/TH.hs:13:1: intQQ
-main: test/Spec/TemplateHaskell/TH.hs:21:1: zero1
-main: test/Spec/TemplateHaskell/TH.hs:24:1: zero2
-main: test/Spec/TemplateHaskell/TH.hs:27:1: zero3
-main: test/Spec/TemplateHaskell/TH.hs:30:1: zero4
+main: test/Spec/TemplateHaskell/TH.hs:22:1: threeQ
+main: test/Spec/TemplateHaskell/TH.hs:25:1: intQQ
+main: test/Spec/TemplateHaskell/TH.hs:33:1: zero1
+main: test/Spec/TemplateHaskell/TH.hs:36:1: zero2
+main: test/Spec/TemplateHaskell/TH.hs:39:1: zero3
+main: test/Spec/TemplateHaskell/TH.hs:42:1: zero4
