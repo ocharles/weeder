@@ -16,9 +16,10 @@
     flake-utils.url = github:numtide/flake-utils;
     haskellNix.url = github:input-output-hk/haskell.nix;
     nixpkgs.follows = "haskellNix/nixpkgs-unstable";
+    ch-hs-imports.url = "github:circuithub/ch-hs-imports";
   };
 
-  outputs = { self, nixpkgs, flake-utils, haskellNix }:
+  outputs = { self, nixpkgs, flake-utils, haskellNix, ch-hs-imports }:
     flake-utils.lib.eachSystem ["x86_64-linux"] (system:
       let
         pkgs = import nixpkgs {
@@ -59,7 +60,7 @@
           withHoogle = false;
           tools = { cabal = "latest"; };
           exactDeps = false;
-          buildInputs = [ pkgs.changie ];
+          buildInputs = [ pkgs.changie ch-hs-imports.packages.x86_64-linux.default pkgs.treefmt pkgs.haskellPackages.fourmolu ];
         };
       }
     );
