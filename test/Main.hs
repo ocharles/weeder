@@ -75,7 +75,7 @@ discoverIntegrationTests = do
 -- Also creates a dotfile containing the dependency graph as seen by Weeder
 integrationTestOutput :: FilePath -> IO LBS.ByteString
 integrationTestOutput hieDirectory = do
-  hieFiles <- Weeder.Main.getHieFiles ".hie" [hieDirectory] True
+  hieFiles <- Weeder.Main.getHieFiles ".hie" [hieDirectory] False
   weederConfig <- TOML.decodeFile configExpr >>= either throwIO pure
   let (weeds, analysis) = Weeder.Run.runWeeder weederConfig hieFiles
       graph = Weeder.dependencyGraph analysis
