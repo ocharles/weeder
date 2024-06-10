@@ -1,4 +1,4 @@
-module Spec.TemplateHaskell.TH (intQQ, oneQ) where
+module Spec.TemplateHaskell.TH (intQQ, oneQ, twoQ, two) where
 
 import Language.Haskell.TH
 import Language.Haskell.TH.Quote
@@ -8,6 +8,12 @@ oneQ = pure . LitE $ IntegerL one
 
 one :: Integer
 one = 1
+
+two :: Int
+two = 2
+
+twoQ :: Q Exp
+twoQ = pure . VarE $ mkName "two"
 
 intQQ :: QuasiQuoter
 intQQ = QuasiQuoter 
