@@ -19,12 +19,12 @@ import qualified Data.Set as Set
 import qualified Data.Map.Strict as Map
 
 -- ghc
-import GHC.Plugins 
+import GHC.Plugins
   ( occNameString
   , unitString
   , moduleUnit
   , moduleName
-  , moduleNameString 
+  , moduleNameString
   )
 import GHC.Iface.Ext.Types ( HieFile( hie_asts ), getAsts )
 import GHC.Iface.Ext.Utils (generateReferencesMap)
@@ -66,7 +66,7 @@ formatWeed Weed{..} =
 -- Returns a list of 'Weed's that can be displayed using
 -- 'formatWeed', and the final 'Analysis'.
 runWeeder :: Config -> [HieFile] -> ([Weed], Analysis)
-runWeeder weederConfig@Config{ rootPatterns, typeClassRoots, rootInstances } hieFiles =
+runWeeder weederConfig@Config{ rootPatterns, typeClassRoots, rootInstances, rootModules } hieFiles =
   let 
     asts = concatMap (Map.elems . getAsts . hie_asts) hieFiles
 
@@ -100,11 +100,19 @@ runWeeder weederConfig@Config{ rootPatterns, typeClassRoots, rootInstances } hie
               rootPatterns
         )
         ( outputableDeclarations analysis )
+    
+    matchingModules = 
+      Set.filter 
+        ((\s -> any (`matchTest` s) rootModules) . moduleNameString . moduleName) 
+      ( Map.keysSet $ exports analysis )
 
     reachableSet =
       reachable
         analysis
-        ( Set.map DeclarationRoot roots <> filterImplicitRoots analysis ( implicitRoots analysis ) )
+        ( Set.map DeclarationRoot roots 
+        <> Set.map ModuleRoot matchingModules 
+        <> filterImplicitRoots analysis ( implicitRoots analysis ) 
+        )
 
     -- We only care about dead declarations if they have a span assigned,
     -- since they don't show up in the output otherwise

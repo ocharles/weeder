@@ -19,6 +19,7 @@ configToTomlTests =
         , typeClassRoots = True
         , rootInstances = [InstanceOnly "Quux\\\\[\\]", ClassOnly "[\\[\\\\[baz" <> ModuleOnly "[Quuux]", InstanceOnly "[\\[\\\\[baz" <> ClassOnly "[Quuux]" <> ModuleOnly "[Quuuux]"]
         , unusedTypes = True
+        , rootModules = ["Foo\\.Bar", "Baz"]
         }
       cf' = T.pack $ configToToml cf
    in TOML.decode cf' `shouldBe` Right cf

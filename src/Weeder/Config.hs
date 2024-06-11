@@ -69,7 +69,9 @@ data ConfigType a = Config
   , unusedTypes :: Bool
     -- ^ Toggle to look for and output unused types. Type family instances will
     -- be marked as implicit roots.
-  } deriving (Eq, Show)
+  , rootModules :: [a]
+    -- ^ All matching modules will be added to the root set.
+  } deriving (Eq, Show, Functor, Foldable, Traversable)
 
 
 -- | Construct via InstanceOnly, ClassOnly or ModuleOnly, 
@@ -100,6 +102,7 @@ defaultConfig = Config
   , typeClassRoots = False
   , rootInstances = [ ClassOnly "\\.IsString$", ClassOnly "\\.IsList$" ]
   , unusedTypes = False
+  , rootModules = mempty
   }
 
 
@@ -115,6 +118,7 @@ instance TOML.DecodeTOML ConfigParsed where
     typeClassRoots <- TOML.getFieldOr (typeClassRoots defaultConfig) "type-class-roots"
     rootInstances <- TOML.getFieldOr (rootInstances defaultConfig) "root-instances" 
     unusedTypes <- TOML.getFieldOr (unusedTypes defaultConfig) "unused-types"
+    rootModules <- TOML.getFieldOr (rootModules defaultConfig) "root-modules"
 
     pure Config{..}
 
@@ -125,6 +129,7 @@ decodeNoDefaults = do
   typeClassRoots <- TOML.getField "type-class-roots"
   rootInstances <- TOML.getField "root-instances"
   unusedTypes <- TOML.getField "unused-types"
+  rootModules <- TOML.getField "root-modules"
 
   either fail pure $ compileConfig Config{..}
 
@@ -181,10 +186,13 @@ compileRegex = bimap show (\p -> patternToRegex p defaultCompOpt defaultExecOpt)
 
 
 compileConfig :: ConfigParsed -> Either String Config
-compileConfig conf@Config{ rootInstances, rootPatterns } = do
-  rootInstances' <- traverse (traverse compileRegex) . nubOrd $ rootInstances
-  rootPatterns' <- traverse compileRegex $ nubOrd rootPatterns
-  pure conf{ rootInstances = rootInstances', rootPatterns = rootPatterns' }
+compileConfig conf@Config{ rootInstances, rootPatterns, rootModules } = 
+  traverse compileRegex conf'
+  where
+    rootInstances' = nubOrd rootInstances
+    rootPatterns' = nubOrd rootPatterns
+    rootModules' = nubOrd rootModules
+    conf' = conf{ rootInstances = rootInstances', rootPatterns = rootPatterns', rootModules = rootModules' }
 
 
 configToToml :: ConfigParsed -> String
@@ -194,6 +202,7 @@ configToToml Config{..}
       , "type-class-roots = " ++ map toLower (show typeClassRoots)
       , "root-instances = " ++ "[" ++ intercalate "," (map showInstancePattern rootInstances') ++ "]"
       , "unused-types = " ++ map toLower (show unusedTypes)
+      , "root-modules = " ++ show rootModules
       ]
   where
     rootInstances' = rootInstances
