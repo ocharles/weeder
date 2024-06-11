@@ -29,10 +29,13 @@ import System.IO ( stderr, hPutStrLn )
 import qualified TOML
 
 -- directory
-import System.Directory ( canonicalizePath, doesDirectoryExist, doesFileExist, listDirectory, withCurrentDirectory, pathIsSymbolicLink, getSymbolicLinkTarget )
+import System.Directory ( canonicalizePath, doesFileExist )
 
 -- filepath
-import System.FilePath ( isExtensionOf )
+import System.FilePath ( isExtSeparator )
+
+-- glob
+import qualified System.FilePath.Glob as Glob
 
 -- ghc
 import GHC.Iface.Ext.Binary ( HieFileResult( HieFileResult, hie_file_result ), readHieFileWithVersion )
@@ -235,9 +238,12 @@ mainWithConfig hieExt hieDirectories requireHsFiles weederConfig = handleWeederE
 -- Will rethrow exceptions as 'ExceptionInLinkedThread' to the calling thread.
 getHieFiles :: String -> [FilePath] -> Bool -> IO [HieFile]
 getHieFiles hieExt hieDirectories requireHsFiles = do
+  let hiePat = "**/*." <> hieExtNoSep
+      hieExtNoSep = if isExtSeparator (head hieExt) then tail hieExt else hieExt
+
   hieFilePaths :: [FilePath] <-
     concat <$>
-      traverse ( getFilesIn hieExt )
+      traverse ( getFilesIn hiePat )
         ( if null hieDirectories
           then ["./."]
           else hieDirectories
@@ -245,7 +251,7 @@ getHieFiles hieExt hieDirectories requireHsFiles = do
 
   hsFilePaths :: [FilePath] <-
     if requireHsFiles
-      then getFilesIn ".hs" "./."
+      then getFilesIn "**/*.hs" "./."
       else pure []
 
   hieFileResultsChan <- newChan
@@ -275,59 +281,15 @@ getHieFiles hieExt hieDirectories requireHsFiles = do
 -- | Recursively search for files with the given extension in given directory
 getFilesIn
   :: String
-  -- ^ Only files with this extension are considered
+  -- ^ Only files matching this pattern are considered.
   -> FilePath
   -- ^ Directory to look in
   -> IO [FilePath]
-getFilesIn ext relRoot = do
-  -- this implementation fixes https://github.com/ocharles/weeder/issues/163, but there are
-  -- several alternatives that either *may* fix the same problem or *should* fix it, and we
-  -- could help them upstream. in particular:
-  --
-  -- - https://hackage.haskell.org/package/Glob-0.10.2/docs/System-FilePath-Glob.html
-  --   (most promising candidate i've found, but i haven't checked it yet.)
-  -- - https://hackage.haskell.org/package/extra-1.7.12/docs/System-Directory-Extra.html
-  --   (checked: package `extra` needs fixing, we could copy `getFilesIn` upstream).
-  -- - https://hackage.haskell.org/package/filepattern-0.1.3/docs/System-FilePattern-Directory.html#v:getDirectoryFilesIgnoreSlow
-  --   (haven't checked, but the docs about how inconsistencies on case-sensitive file systems are ok may be a red flag?)
-
-  let -- call `canonicalizePath` and resolve sym links (up to a generous recursion depth).
-      hyperCanonicalizePath :: Int -> FilePath -> IO FilePath
-      hyperCanonicalizePath limit@30 _ = error $ "recursion limit of " <> show limit <> " reached, giving up!"
-      hyperCanonicalizePath n x0 = do
-        x1 <- canonicalizePath x0
-        x2 <- pathIsSymbolicLink x1
-        x3 <- if x2 then hyperCanonicalizePath (n+1) =<< getSymbolicLinkTarget x1 else pure x1
-        pure x3
-
-  root <- hyperCanonicalizePath 0 relRoot
-
-  let -- iterate over one file name in the search path(s).
-      go :: [FilePath] -> FilePath -> IO [FilePath]
-      go alreadyTraversed relPath = do
-        path <- hyperCanonicalizePath 0 relPath
-
-        -- if file, right extension, and not a super-directory: add to output
-        dfx <- doesFileExist path
-        let addPlease = dfx && ext `isExtensionOf` path && root `isPrefixOf` path
-
-        -- if directory, not already traversed, and not super-directory: recurse
-        ddx <- doesDirectoryExist path
-        let recursePlease = ddx && path `notElem` alreadyTraversed && root `isPrefixOf` path
-
-        if addPlease
-          then pure [path]
-          else if recursePlease
-            then do
-              withCurrentDirectory path $ do
-                subdirs <- listDirectory "./."
-                result <- traverse (go (path : alreadyTraversed)) subdirs
-                pure $ mconcat result
-            else do
-              pure []
-
-  go [] root 
-
+getFilesIn pat relRoot = do
+  root <- canonicalizePath relRoot
+  [result] <- Glob.globDir [Glob.compile pat] root
+  mapM canonicalizePath result
+  
 
 -- | Read a .hie file, exiting if it's an incompatible version.
 readCompatibleHieFileOrExit :: NameCache -> FilePath -> IO HieFile
