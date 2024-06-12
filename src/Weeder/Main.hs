@@ -285,10 +285,9 @@ getFilesIn
   -> FilePath
   -- ^ Directory to look in
   -> IO [FilePath]
-getFilesIn pat relRoot = do
-  root <- canonicalizePath relRoot
+getFilesIn pat root = do
   [result] <- Glob.globDir [Glob.compile pat] root
-  mapM canonicalizePath result
+  pure result
   
 
 -- | Read a .hie file, exiting if it's an incompatible version.
