@@ -29,7 +29,7 @@ import System.IO ( stderr, hPutStrLn )
 import qualified TOML
 
 -- directory
-import System.Directory ( canonicalizePath, doesFileExist )
+import System.Directory ( doesFileExist )
 
 -- filepath
 import System.FilePath ( isExtSeparator )
