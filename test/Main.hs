@@ -10,18 +10,13 @@ import Data.Maybe
 import Algebra.Graph.Export.Dot
 import GHC.Types.Name.Occurrence (occNameString)
 import System.Directory
-import System.Environment (getArgs, withArgs)
 import System.FilePath
-import System.Process
 import System.IO (stderr, hPrint)
 import Test.Tasty (TestTree, defaultMain, testGroup)
-import Control.Monad (zipWithM_, when)
 import Control.Exception ( throwIO, IOException, handle )
-import Data.Maybe (isJust)
 import Data.List (find, sortOn)
-import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as LBS
-import Data.Text (Text, pack)
+import Data.Text (pack)
 import Data.Text.Encoding (encodeUtf8)
 import Test.Tasty.Golden
 
