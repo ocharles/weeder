@@ -44,6 +44,7 @@ import GHC.Generics ( Generic )
 import Prelude hiding ( span )
 
 -- containers
+import Data.Containers.ListUtils ( nubOrd )
 import Data.Map.Strict ( Map )
 import qualified Data.Map.Strict as Map
 import Data.Sequence ( Seq )
@@ -730,22 +731,30 @@ requestEvidence n d = do
       }
 
 
--- | Follow the given evidence uses back to their instance bindings,
--- and connect the declaration to those bindings.
-followEvidenceUses :: RefMap TypeIndex -> Declaration -> Set Name -> Graph Declaration
-followEvidenceUses refMap d names =
-  let getEvidenceTrees = mapMaybe (getEvidenceTree refMap) . Set.toList
-      evidenceInfos = concatMap Tree.flatten (getEvidenceTrees names)
+-- | Follow the given evidence use back to their instance bindings
+followEvidenceUses :: RefMap TypeIndex -> Name -> [Declaration]
+followEvidenceUses rf name =
+  let evidenceInfos = maybe [] (nubOrd . Tree.flatten) (getEvidenceTree rf name)
+      -- Often, we get duplicates in the flattened evidence trees. Sometimes, it's
+      -- just one or two elements and other times there are 5x as many
       instanceEvidenceInfos = evidenceInfos & filter \case
         EvidenceInfo _ _ _ (Just (EvInstBind _ _, ModuleScope, _)) -> True
         _ -> False
-      evBindSiteDecls = mapMaybe (nameToDeclaration . evidenceVar) instanceEvidenceInfos
-   in star d evBindSiteDecls
+  in mapMaybe (nameToDeclaration . evidenceVar) instanceEvidenceInfos
 
 
--- | Follow evidence uses listed under 'requestedEvidence' back to their 
+-- | Follow evidence uses listed under 'requestedEvidence' back to their
 -- instance bindings, and connect their corresponding declaration to those bindings.
 analyseEvidenceUses :: RefMap TypeIndex -> Analysis -> Analysis
-analyseEvidenceUses rf a@Analysis{ requestedEvidence, dependencyGraph } =
-  let graphs = map (uncurry (followEvidenceUses rf)) $ Map.toList requestedEvidence
+analyseEvidenceUses rf a@Analysis{ requestedEvidence, dependencyGraph } = do
+  let combinedNames = mconcat (Map.elems requestedEvidence)
+      -- We combine all the names in all sets into one set, because the names
+      -- are duplicated a lot. In one example, the number of elements in the
+      -- combined sizes of all the sets are 16961625 as opposed to the
+      -- number of elements by combining all sets into one: 200330, that's an
+      -- 80x difference!
+      declMap  = Map.fromSet (followEvidenceUses rf) combinedNames
+      -- Map.! is safe because declMap contains all elements of v by definition
+      graphs = map (\(d, v) -> star d ((nubOrd $ foldMap (declMap Map.!) v)))
+                 (Map.toList requestedEvidence)
    in a { dependencyGraph = overlays (dependencyGraph : graphs) }
