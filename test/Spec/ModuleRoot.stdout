@@ -1,0 +1,2 @@
+main: test/Spec/ModuleRoot/InstanceNotRoot.hs:9:1: (Instance) :: C T
+main: test/Spec/ModuleRoot/M.hs:11:1: weed

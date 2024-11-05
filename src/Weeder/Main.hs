@@ -1,4 +1,5 @@
 {-# language ApplicativeDo #-}
+{-# language ScopedTypeVariables #-}
 {-# language BlockArguments #-}
 {-# language FlexibleContexts #-}
 {-# language NamedFieldPuns #-}
@@ -14,11 +15,11 @@ module Weeder.Main ( main, mainWithConfig, getHieFiles ) where
 import Control.Concurrent.Async ( async, link, ExceptionInLinkedThread ( ExceptionInLinkedThread ) )
 
 -- base
-import Control.Exception ( Exception, throwIO, displayException, catches, Handler ( Handler ), SomeException ( SomeException ) )
+import Control.Exception ( Exception, throwIO, displayException, catches, Handler ( Handler ), SomeException ( SomeException ))
 import Control.Concurrent ( getChanContents, newChan, writeChan, setNumCapabilities )
+import Data.List
 import Control.Monad ( unless, when )
 import Data.Foldable
-import Data.List ( isSuffixOf )
 import Data.Maybe ( isJust, catMaybes )
 import Data.Version ( showVersion )
 import System.Exit ( ExitCode(..), exitWith )
@@ -28,10 +29,13 @@ import System.IO ( stderr, hPutStrLn )
 import qualified TOML
 
 -- directory
-import System.Directory ( canonicalizePath, doesDirectoryExist, doesFileExist, doesPathExist, listDirectory, withCurrentDirectory )
+import System.Directory ( doesFileExist )
 
 -- filepath
-import System.FilePath ( isExtensionOf )
+import System.FilePath ( isExtSeparator )
+
+-- glob
+import qualified System.FilePath.Glob as Glob
 
 -- ghc
 import GHC.Iface.Ext.Binary ( HieFileResult( HieFileResult, hie_file_result ), readHieFileWithVersion )
@@ -234,17 +238,20 @@ mainWithConfig hieExt hieDirectories requireHsFiles weederConfig = handleWeederE
 -- Will rethrow exceptions as 'ExceptionInLinkedThread' to the calling thread.
 getHieFiles :: String -> [FilePath] -> Bool -> IO [HieFile]
 getHieFiles hieExt hieDirectories requireHsFiles = do
-  hieFilePaths <-
+  let hiePat = "**/*." <> hieExtNoSep
+      hieExtNoSep = if isExtSeparator (head hieExt) then tail hieExt else hieExt
+
+  hieFilePaths :: [FilePath] <-
     concat <$>
-      traverse ( getFilesIn hieExt )
+      traverse ( getFilesIn hiePat )
         ( if null hieDirectories
           then ["./."]
           else hieDirectories
         )
 
-  hsFilePaths <-
+  hsFilePaths :: [FilePath] <-
     if requireHsFiles
-      then getFilesIn ".hs" "./."
+      then getFilesIn "**/*.hs" "./."
       else pure []
 
   hieFileResultsChan <- newChan
@@ -274,43 +281,14 @@ getHieFiles hieExt hieDirectories requireHsFiles = do
 -- | Recursively search for files with the given extension in given directory
 getFilesIn
   :: String
-  -- ^ Only files with this extension are considered
+  -- ^ Only files matching this pattern are considered.
   -> FilePath
   -- ^ Directory to look in
   -> IO [FilePath]
-getFilesIn ext path = do
-  exists <-
-    doesPathExist path
-
-  if exists
-    then do
-      isFile <-
-        doesFileExist path
-
-      if isFile && ext `isExtensionOf` path
-        then do
-          path' <-
-            canonicalizePath path
-
-          return [ path' ]
-
-        else do
-          isDir <-
-            doesDirectoryExist path
-
-          if isDir
-            then do
-              cnts <-
-                listDirectory path
-
-              withCurrentDirectory path ( foldMap ( getFilesIn ext ) cnts )
-
-            else
-              return []
-
-    else
-      return []
-
+getFilesIn pat root = do
+  [result] <- Glob.globDir [Glob.compile pat] root
+  pure result
+  
 
 -- | Read a .hie file, exiting if it's an incompatible version.
 readCompatibleHieFileOrExit :: NameCache -> FilePath -> IO HieFile

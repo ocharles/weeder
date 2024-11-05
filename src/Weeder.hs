@@ -44,6 +44,7 @@ import GHC.Generics ( Generic )
 import Prelude hiding ( span )
 
 -- containers
+import Data.Containers.ListUtils ( nubOrd )
 import Data.Map.Strict ( Map )
 import qualified Data.Map.Strict as Map
 import Data.Sequence ( Seq )
@@ -56,6 +57,7 @@ import qualified Data.Tree as Tree
 import Data.Generics.Labels ()
 
 -- ghc
+import GHC.Types.Avail ( AvailInfo, availName, availNames )
 import GHC.Data.FastString ( unpackFS )
 import GHC.Iface.Ext.Types
   ( BindType( RegularBind )
@@ -64,7 +66,7 @@ import GHC.Iface.Ext.Types
   , EvVarSource ( EvInstBind, cls )
   , HieAST( Node, nodeChildren, nodeSpan, sourcedNodeInfo )
   , HieASTs( HieASTs )
-  , HieFile( HieFile, hie_asts, hie_module, hie_hs_file, hie_types )
+  , HieFile( HieFile, hie_asts, hie_exports, hie_module, hie_hs_file, hie_types )
   , HieType( HTyVarTy, HAppTy, HTyConApp, HForAllTy, HFunTy, HQualTy, HLitTy, HCastTy, HCoercionTy )
   , HieArgs( HieArgs )
   , HieTypeFix( Roll )
@@ -270,13 +272,15 @@ analyseHieFile weederConfig hieFile =
 
 analyseHieFile' :: ( MonadState Analysis m, MonadReader AnalysisInfo m ) => m ()
 analyseHieFile' = do
-  HieFile{ hie_asts = HieASTs hieASTs, hie_module, hie_hs_file } <- asks currentHieFile
+  HieFile{ hie_asts = HieASTs hieASTs, hie_exports, hie_module, hie_hs_file } <- asks currentHieFile
   #modulePaths %= Map.insert hie_module hie_hs_file
   
   g <- asks initialGraph
   #dependencyGraph %= overlay g
 
   for_ hieASTs topLevelAnalysis
+
+  for_ hie_exports ( analyseExport hie_module )
 
 
 lookupType :: HieFile -> TypeIndex -> HieTypeFix
@@ -322,6 +326,15 @@ typeToNames (Roll t) = case t of
 
     hieArgsTypes :: [(Bool, HieTypeFix)] -> Set Name
     hieArgsTypes = foldMap (typeToNames . snd) . filter fst
+
+
+analyseExport :: MonadState Analysis m => Module -> AvailInfo -> m ()
+analyseExport m a = 
+  traverse_ (traverse_ addExport . nameToDeclaration) (availName a : availNames a)
+  where
+
+    addExport :: MonadState Analysis m => Declaration -> m ()
+    addExport d = #exports %= Map.insertWith (<>) m ( Set.singleton d )
 
 
 -- | @addDependency x y@ adds the information that @x@ depends on @y@.
@@ -718,22 +731,30 @@ requestEvidence n d = do
       }
 
 
--- | Follow the given evidence uses back to their instance bindings,
--- and connect the declaration to those bindings.
-followEvidenceUses :: RefMap TypeIndex -> Declaration -> Set Name -> Graph Declaration
-followEvidenceUses refMap d names =
-  let getEvidenceTrees = mapMaybe (getEvidenceTree refMap) . Set.toList
-      evidenceInfos = concatMap Tree.flatten (getEvidenceTrees names)
+-- | Follow the given evidence use back to their instance bindings
+followEvidenceUses :: RefMap TypeIndex -> Name -> [Declaration]
+followEvidenceUses rf name =
+  let evidenceInfos = maybe [] (nubOrd . Tree.flatten) (getEvidenceTree rf name)
+      -- Often, we get duplicates in the flattened evidence trees. Sometimes, it's
+      -- just one or two elements and other times there are 5x as many
       instanceEvidenceInfos = evidenceInfos & filter \case
         EvidenceInfo _ _ _ (Just (EvInstBind _ _, ModuleScope, _)) -> True
         _ -> False
-      evBindSiteDecls = mapMaybe (nameToDeclaration . evidenceVar) instanceEvidenceInfos
-   in star d evBindSiteDecls
+  in mapMaybe (nameToDeclaration . evidenceVar) instanceEvidenceInfos
 
 
--- | Follow evidence uses listed under 'requestedEvidence' back to their 
+-- | Follow evidence uses listed under 'requestedEvidence' back to their
 -- instance bindings, and connect their corresponding declaration to those bindings.
 analyseEvidenceUses :: RefMap TypeIndex -> Analysis -> Analysis
-analyseEvidenceUses rf a@Analysis{ requestedEvidence, dependencyGraph } =
-  let graphs = map (uncurry (followEvidenceUses rf)) $ Map.toList requestedEvidence
+analyseEvidenceUses rf a@Analysis{ requestedEvidence, dependencyGraph } = do
+  let combinedNames = mconcat (Map.elems requestedEvidence)
+      -- We combine all the names in all sets into one set, because the names
+      -- are duplicated a lot. In one example, the number of elements in the
+      -- combined sizes of all the sets are 16961625 as opposed to the
+      -- number of elements by combining all sets into one: 200330, that's an
+      -- 80x difference!
+      declMap  = Map.fromSet (followEvidenceUses rf) combinedNames
+      -- Map.! is safe because declMap contains all elements of v by definition
+      graphs = map (\(d, v) -> star d ((nubOrd $ foldMap (declMap Map.!) v)))
+                 (Map.toList requestedEvidence)
    in a { dependencyGraph = overlays (dependencyGraph : graphs) }

@@ -5,8 +5,8 @@ name:          weeder
 author:        Ollie Charles <ollie@ocharles.org.uk>
 maintainer:    Ollie Charles <ollie@ocharles.org.uk>
 build-type:    Simple
-version:       2.8.0
-copyright:     Neil Mitchell 2017-2020, Oliver Charles 2020-2023
+version:       2.9.0
+copyright:     Neil Mitchell 2017-2020, Oliver Charles 2020-2024
 synopsis:      Detect dead code
 description:   Find declarations.
 homepage:      https://github.com/ocharles/weeder#readme
@@ -31,6 +31,7 @@ library
     , filepath             ^>= 1.4.2.1 || ^>= 1.5
     , generic-lens         ^>= 2.2.0.0
     , ghc                  ^>= 9.4 || ^>= 9.6 || ^>= 9.8 || ^>= 9.10
+    , Glob                 ^>= 0.9 || ^>= 0.10
     , lens                 ^>= 5.1 || ^>= 5.2 || ^>= 5.3
     , mtl                  ^>= 2.2.2 || ^>= 2.3
     , optparse-applicative ^>= 0.14.3.0 || ^>= 0.15.1.0 || ^>= 0.16.0.0 || ^>=  0.17 || ^>= 0.18.1.0
@@ -58,7 +59,7 @@ executable weeder
     , weeder
   main-is: Main.hs
   hs-source-dirs: exe-weeder
-  ghc-options: -Wall -fwarn-incomplete-uni-patterns -threaded -no-rtsopts-suggestions -with-rtsopts=-N
+  ghc-options: -Wall -fwarn-incomplete-uni-patterns -threaded -no-rtsopts-suggestions -with-rtsopts=-N -rtsopts
   default-language: Haskell2010
 
 test-suite weeder-test
@@ -98,6 +99,8 @@ test-suite weeder-test
     Spec.DeriveGeneric.DeriveGeneric
     Spec.InstanceRootConstraint.InstanceRootConstraint
     Spec.InstanceTypeclass.InstanceTypeclass
+    Spec.ModuleRoot.InstanceNotRoot
+    Spec.ModuleRoot.M
     Spec.Monads.Monads
     Spec.NumInstance.NumInstance
     Spec.NumInstanceLiteral.NumInstanceLiteral
