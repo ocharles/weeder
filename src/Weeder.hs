@@ -9,6 +9,7 @@
 {-# language OverloadedLabels #-}
 {-# language OverloadedStrings #-}
 {-# language TupleSections #-}
+{-# language ViewPatterns #-}
 
 module Weeder
   ( -- * Analysis
@@ -33,18 +34,16 @@ import Algebra.Graph.ToGraph ( dfs )
 
 -- base
 import Control.Applicative ( Alternative )
-import Control.Monad ( guard, msum, when, unless, mzero )
+import Control.Monad ( guard, msum, when, unless, mzero, forM_, void )
 import Data.Traversable ( for )
-import Data.Maybe ( mapMaybe )
+import Data.Maybe ( mapMaybe, isJust, fromJust )
 import Data.Foldable ( for_, traverse_, toList )
-import Data.Function ( (&) )
-import Data.List ( intercalate )
+import Data.List ( intercalate, find )
 import Data.Monoid ( First( First ), getFirst )
 import GHC.Generics ( Generic )
 import Prelude hiding ( span )
 
 -- containers
-import Data.Containers.ListUtils ( nubOrd )
 import Data.Map.Strict ( Map )
 import qualified Data.Map.Strict as Map
 import Data.Sequence ( Seq )
@@ -63,7 +62,7 @@ import GHC.Iface.Ext.Types
   ( BindType( RegularBind )
   , ContextInfo( Decl, ValBind, PatternBind, Use, TyDecl, ClassTyDecl, EvidenceVarBind, RecField )
   , DeclType( DataDec, ClassDec, ConDec, SynDec, FamDec )
-  , EvVarSource ( EvInstBind, cls )
+  , EvVarSource ( EvInstBind, cls, EvLetBind )
   , HieAST( Node, nodeChildren, nodeSpan, sourcedNodeInfo )
   , HieASTs( HieASTs )
   , HieFile( HieFile, hie_asts, hie_exports, hie_module, hie_hs_file, hie_types )
@@ -77,12 +76,13 @@ import GHC.Iface.Ext.Types
   , RecFieldContext ( RecFieldOcc )
   , TypeIndex
   , getSourcedNodeInfo
+  , getEvBindDeps
   )
 import GHC.Iface.Ext.Utils
   ( EvidenceInfo( EvidenceInfo, evidenceVar )
   , RefMap
+  , isEvidenceBind
   , findEvidenceUse
-  , getEvidenceTree
   , hieTypeToIface
   , recoverFullType
   )
@@ -103,13 +103,16 @@ import GHC.Types.Name
   , isVarOcc
   , occNameString
   )
+import GHC.Types.Unique.FM ( UniqFM, addToUFM_C, lookupUFM, elemUFM )
 import GHC.Types.SrcLoc ( RealSrcSpan, realSrcSpanEnd, realSrcSpanStart, srcLocLine, srcLocCol )
+import GHC.Utils.Monad (anyM)
 
 -- lens
 import Control.Lens ( (%=) )
 
 -- mtl
 import Control.Monad.State.Class ( MonadState )
+import Control.Monad.State.Strict ( State, modify', get, execState )
 import Control.Monad.Reader.Class ( MonadReader, asks )
 
 -- parallel
@@ -168,8 +171,8 @@ data Analysis =
       -- from its definition.
     , implicitRoots :: Set Root
       -- ^ Stores information on Declarations that may be automatically marked
-      -- as always reachable. This is used, for example, to capture knowledge 
-      -- not yet modelled in weeder, or to mark all instances of a class as 
+      -- as always reachable. This is used, for example, to capture knowledge
+      -- not yet modelled in weeder, or to mark all instances of a class as
       -- roots.
     , exports :: Map Module ( Set Declaration )
       -- ^ All exports for a given module.
@@ -190,7 +193,7 @@ data Analysis =
 
 
 instance Semigroup Analysis where
-  (<>) (Analysis a1 b1 c1 d1 e1 f1 g1) (Analysis a2 b2 c2 d2 e2 f2 g2)= 
+  (<>) (Analysis a1 b1 c1 d1 e1 f1 g1) (Analysis a2 b2 c2 d2 e2 f2 g2)=
     Analysis (a1 `overlay` a2) (Map.unionWith (<>) b1 b2) (c1 <> c2) (Map.unionWith (<>) d1 d2) (e1 <> e2) (f1 <> f2) (Map.unionWith (<>) g1 g2)
 
 
@@ -216,7 +219,7 @@ data Root
     DeclarationRoot Declaration
   | -- | We store extra information for instances in order to be able
     -- to specify e.g. all instances of a class as roots.
-    InstanceRoot 
+    InstanceRoot
       Declaration -- ^ Declaration of the instance
       Declaration -- ^ Declaration of the parent class
   | -- | All exported declarations in a module are roots.
@@ -237,7 +240,6 @@ reachable Analysis{ dependencyGraph, exports } roots =
       InstanceRoot d _ -> [ d ] -- filter InstanceRoots in `Main.hs`
       ModuleRoot m -> foldMap Set.toList ( Map.lookup m exports )
 
-
 -- | The set of all declarations that could possibly
 -- appear in the output.
 outputableDeclarations :: Analysis -> Set Declaration
@@ -253,7 +255,7 @@ initialGraph info =
       asts = Map.elems hieAsts
       decls = concatMap (toList . findIdentifiers' (const True)) asts
   in if unusedTypes
-    then stars do 
+    then stars do
       (d, IdentifierDetails{identType}, _) <- decls
       t <- maybe mzero pure identType
       let ns = Set.toList $ typeToNames (lookupType hf t)
@@ -274,7 +276,7 @@ analyseHieFile' :: ( MonadState Analysis m, MonadReader AnalysisInfo m ) => m ()
 analyseHieFile' = do
   HieFile{ hie_asts = HieASTs hieASTs, hie_exports, hie_module, hie_hs_file } <- asks currentHieFile
   #modulePaths %= Map.insert hie_module hie_hs_file
-  
+
   g <- asks initialGraph
   #dependencyGraph %= overlay g
 
@@ -329,7 +331,7 @@ typeToNames (Roll t) = case t of
 
 
 analyseExport :: MonadState Analysis m => Module -> AvailInfo -> m ()
-analyseExport m a = 
+analyseExport m a =
   traverse_ (traverse_ addExport . nameToDeclaration) (availName a : availNames a)
   where
 
@@ -432,7 +434,7 @@ analyseInstanceDeclaration n@Node{ nodeSpan } = do
   guard $ annsContain n ("ClsInstD", "InstDecl")
 
   for_ ( findEvInstBinds n ) \(d, cs, ids, _) -> do
-    -- This makes instance declarations show up in 
+    -- This makes instance declarations show up in
     -- the output if type-class-roots is set to False.
     define d nodeSpan
 
@@ -482,7 +484,7 @@ analyseDataDeclaration n = do
       when unusedTypes $
         define dataTypeName (nodeSpan n)
 
-      -- Without connecting constructors to the data declaration TypeAliasGADT.hs 
+      -- Without connecting constructors to the data declaration TypeAliasGADT.hs
       -- fails with a false positive for A
       conDecs <- for ( constructors n ) \constructor ->
         for ( foldMap ( First . Just ) ( findIdentifiers ( any isConDec ) constructor ) ) \conDec -> do
@@ -732,29 +734,89 @@ requestEvidence n d = do
 
 
 -- | Follow the given evidence use back to their instance bindings
-followEvidenceUses :: RefMap TypeIndex -> Name -> [Declaration]
-followEvidenceUses rf name =
-  let evidenceInfos = maybe [] (nubOrd . Tree.flatten) (getEvidenceTree rf name)
-      -- Often, we get duplicates in the flattened evidence trees. Sometimes, it's
-      -- just one or two elements and other times there are 5x as many
-      instanceEvidenceInfos = evidenceInfos & filter \case
-        EvidenceInfo _ _ _ (Just (EvInstBind _ _, ModuleScope, _)) -> True
-        _ -> False
-  in mapMaybe (nameToDeclaration . evidenceVar) instanceEvidenceInfos
+followEvidenceUses :: UniqFM Name (Set (EvidenceInfo TypeIndex)) -> Name -> Set Declaration
+followEvidenceUses cachedEvidence name =
+  let res = case lookupUFM cachedEvidence name of
+              Just x -> x
+              Nothing -> mempty
+
+   in Set.map fromJust
+       $ Set.filter isJust
+       $ Set.map (nameToDeclaration . evidenceVar)
+       $ res
+
+-- Adapted from GHC's getEvidenceTree
+populateEvidenceTreeWith ::
+     Ord a
+  => RefMap a
+  -> ((EvVarSource, Scope) -> Bool)
+  -> Name
+  -> State (UniqFM Name (Set (EvidenceInfo a))) ()
+populateEvidenceTreeWith refmap evSrcFilter var = go [var]
+  where
+    go [] = pure ()
+    go vars@(var:_) = do
+      seenMap <- get
+      if var `elemUFM` seenMap
+      then do
+        forM_ vars $ \v -> do
+          -- we just checked that var exists, so fromJust is safe
+          modify' (\m -> addToUFM_C mappend m v (fromJust $ lookupUFM m var))
+        pure ()
+      else do
+        let mxs = Map.lookup (Right var) refmap
+        case mxs of
+          Just xs -> do
+            case find (any isEvidenceBind . identInfo . snd) xs of
+              Just (sp,dets) -> do
+                let mtyp = identType dets
+                case mtyp of
+                  Nothing -> pure ()
+                  Just typ -> do
+                    void $ flip anyM (Set.toList $ identInfo dets) $ \det -> do
+                       case det of
+                         EvidenceVarBind src@(EvLetBind (getEvBindDeps -> xs)) scp spn -> do
+                           forM_ vars $ \v -> do
+                             let evInfo = EvidenceInfo var sp typ (Just (src, scp, spn))
+                             modify' (\m -> addToUFM_C mappend m v (Set.singleton evInfo))
+                           mapM_ (\v -> go (v:vars)) xs
+                           pure True
+                         EvidenceVarBind src scp spn ->
+                           if evSrcFilter (src, scp)
+                           then do
+                             forM_ vars $ \v -> do
+                               let evInfo = EvidenceInfo var sp typ (Just (src,scp,spn))
+                               modify' (\m -> addToUFM_C mappend m v (Set.singleton evInfo))
+                             pure True
+                           else pure False
+                         _ -> pure False
+              -- It is externally bound, we are not interested in them
+              Nothing ->  pure ()
+          Nothing -> pure ()
 
 
 -- | Follow evidence uses listed under 'requestedEvidence' back to their
 -- instance bindings, and connect their corresponding declaration to those bindings.
 analyseEvidenceUses :: RefMap TypeIndex -> Analysis -> Analysis
-analyseEvidenceUses rf a@Analysis{ requestedEvidence, dependencyGraph } = do
+analyseEvidenceUses rf a@Analysis{ requestedEvidence, dependencyGraph }  = do
   let combinedNames = mconcat (Map.elems requestedEvidence)
       -- We combine all the names in all sets into one set, because the names
       -- are duplicated a lot. In one example, the number of elements in the
       -- combined sizes of all the sets are 16961625 as opposed to the
       -- number of elements by combining all sets into one: 200330, that's an
       -- 80x difference!
-      declMap  = Map.fromSet (followEvidenceUses rf) combinedNames
-      -- Map.! is safe because declMap contains all elements of v by definition
-      graphs = map (\(d, v) -> star d ((nubOrd $ foldMap (declMap Map.!) v)))
+
+      ce = flip execState mempty $ forM_ (Set.toList combinedNames) $
+              populateEvidenceTreeWith
+                rf
+                (\case
+                    (EvInstBind _ _, ModuleScope) -> True
+                    _ -> False)
+
+      declMap  = Map.fromSet (followEvidenceUses ce)  combinedNames
+        -- Map.! is safe because declMap contains all elements of v by definition
+
+      graphs = map (\(d, v) -> star d ((Set.toList $ foldMap (declMap Map.!) v)))
                  (Map.toList requestedEvidence)
+
    in a { dependencyGraph = overlays (dependencyGraph : graphs) }
