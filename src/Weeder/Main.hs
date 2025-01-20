@@ -55,9 +55,9 @@ import Paths_weeder (version)
 
 
 -- | Each exception corresponds to an exit code.
-data WeederException 
+data WeederException
   = ExitNoHieFilesFailure
-  | ExitHieVersionFailure 
+  | ExitHieVersionFailure
       FilePath -- ^ Path to HIE file
       Integer -- ^ HIE file's header version
   | ExitConfigFailure
@@ -82,7 +82,7 @@ instance Exception WeederException where
     ExitWeedsFound -> mempty
     where
 
-      noHieFilesFoundMessage =  
+      noHieFilesFoundMessage =
         "No HIE files found: check that the directory is correct "
         <> "and that the -fwrite-ide-info compilation flag is set."
 
@@ -97,13 +97,13 @@ instance Exception WeederException where
         ]
 
 
--- | Convert 'WeederException' to the corresponding 'ExitCode' and emit an error 
+-- | Convert 'WeederException' to the corresponding 'ExitCode' and emit an error
 -- message to stderr.
 --
 -- Additionally, unwrap 'ExceptionInLinkedThread' exceptions: this is for
 -- 'getHieFiles'.
 handleWeederException :: IO a -> IO a
-handleWeederException a = catches a handlers 
+handleWeederException a = catches a handlers
   where
     handlers = [ Handler rethrowExits
                , Handler unwrapLinks
@@ -262,7 +262,7 @@ getHieFiles hieExt hieDirectories requireHsFiles = do
   a <- async $ handleWeederException do
     readHieFiles nameCache hieFilePaths hieFileResultsChan hsFilePaths
     writeChan hieFileResultsChan Nothing
- 
+
   link a
 
   catMaybes . takeWhile isJust <$> getChanContents hieFileResultsChan
@@ -288,7 +288,7 @@ getFilesIn
 getFilesIn pat root = do
   [result] <- Glob.globDir [Glob.compile pat] root
   pure result
-  
+
 
 -- | Read a .hie file, exiting if it's an incompatible version.
 readCompatibleHieFileOrExit :: NameCache -> FilePath -> IO HieFile
