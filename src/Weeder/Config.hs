@@ -50,7 +50,7 @@ import qualified TOML
 type Config = ConfigType Regex
 
 
--- | Configuration that has been parsed from TOML (and can still be 
+-- | Configuration that has been parsed from TOML (and can still be
 -- converted back), but not yet compiled to a 'Config'.
 type ConfigParsed = ConfigType String
 
@@ -74,9 +74,9 @@ data ConfigType a = Config
   } deriving (Eq, Show, Functor, Foldable, Traversable)
 
 
--- | Construct via InstanceOnly, ClassOnly or ModuleOnly, 
+-- | Construct via InstanceOnly, ClassOnly or ModuleOnly,
 -- and combine with the Semigroup instance. The Semigroup
--- instance ignores duplicate fields, prioritising the 
+-- instance ignores duplicate fields, prioritising the
 -- left argument.
 data InstancePattern a = InstancePattern
   { instancePattern :: Maybe a
@@ -116,7 +116,7 @@ instance TOML.DecodeTOML ConfigParsed where
   tomlDecoder = do
     rootPatterns <- TOML.getFieldOr (rootPatterns defaultConfig) "roots"
     typeClassRoots <- TOML.getFieldOr (typeClassRoots defaultConfig) "type-class-roots"
-    rootInstances <- TOML.getFieldOr (rootInstances defaultConfig) "root-instances" 
+    rootInstances <- TOML.getFieldOr (rootInstances defaultConfig) "root-instances"
     unusedTypes <- TOML.getFieldOr (unusedTypes defaultConfig) "unused-types"
     rootModules <- TOML.getFieldOr (rootModules defaultConfig) "root-modules"
 
@@ -186,7 +186,7 @@ compileRegex = bimap show (\p -> patternToRegex p defaultCompOpt defaultExecOpt)
 
 
 compileConfig :: ConfigParsed -> Either String Config
-compileConfig conf@Config{ rootInstances, rootPatterns, rootModules } = 
+compileConfig conf@Config{ rootInstances, rootPatterns, rootModules } =
   traverse compileRegex conf'
   where
     rootInstances' = nubOrd rootInstances
