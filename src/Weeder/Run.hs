@@ -17,6 +17,7 @@ import Data.Function ( (&) )
 import Data.Set ( Set )
 import qualified Data.Set as Set
 import qualified Data.Map.Strict as Map
+import qualified Data.BloomFilter.Easy as BloomFilter
 
 -- ghc
 import GHC.Plugins
@@ -117,7 +118,9 @@ runWeeder weederConfig@Config{ rootPatterns, typeClassRoots, rootInstances, root
     -- We only care about dead declarations if they have a span assigned,
     -- since they don't show up in the output otherwise
     dead =
-      outputableDeclarations analysis Set.\\ reachableSet
+      fastSpecialSetDifference 
+        (outputableDeclarations analysis)
+        reachableSet
 
     warnings =
       Map.unionsWith (++) $
@@ -173,3 +176,17 @@ runWeeder weederConfig@Config{ rootPatterns, typeClassRoots, rootInstances, root
 displayDeclaration :: Declaration -> String
 displayDeclaration d =
   moduleNameString ( moduleName ( declModule d ) ) <> "." <> occNameString ( declOccName d )
+
+-- | This computes the same as (Set.\\) but is faster by assuming that the set difference will be small.
+-- I.e. there will be more non-weeds than weeds.
+--
+fastSpecialSetDifference :: Set Declaration -> Set Declaration -> Set Declaration
+fastSpecialSetDifference allDecls usedDecls = 
+  let bloom = BloomFilter.easyList 0.05 (Set.toList usedDecls)
+      -- The elem docs say:
+      -- @
+      -- If the value is present, return True. If the value is not present, there is still some possibility that True will be returned.
+      -- @
+      -- I.e. if some declaration is a weed, it will definitely show up in the result, but also some weeds will show up in the result.
+      -- So we need to do another set difference afterwards, but with a much smaller set.
+  in Set.difference (Set.filter (not . (`BloomFilter.elem` bloom)) allDecls) usedDecls
