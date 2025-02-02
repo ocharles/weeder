@@ -239,7 +239,10 @@ mainWithConfig hieExt hieDirectories requireHsFiles weederConfig = handleWeederE
 getHieFiles :: String -> [FilePath] -> Bool -> IO [HieFile]
 getHieFiles hieExt hieDirectories requireHsFiles = do
   let hiePat = "**/*." <> hieExtNoSep
-      hieExtNoSep = if isExtSeparator (head hieExt) then tail hieExt else hieExt
+      hieExtNoSep = case uncons hieExt of
+        Just (c0, hieExtNoSep')
+          | isExtSeparator c0 -> hieExtNoSep'
+        _ -> hieExt
 
   hieFilePaths :: [FilePath] <-
     concat <$>

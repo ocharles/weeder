@@ -81,7 +81,7 @@ runWeeder weederConfig@Config{ rootPatterns, typeClassRoots, rootInstances, root
         else analyseEvidenceUses rf
 
     analysis1 =
-      foldl' mappend mempty analyses
+      Data.Foldable.foldl' mappend mempty analyses
 
     -- Evaluating 'analysis1' first allows us to begin analysis
     -- while hieFiles is still being read (since rf depends on all hie files)
@@ -129,7 +129,7 @@ runWeeder weederConfig@Config{ rootPatterns, typeClassRoots, rootInstances, root
               starts <- Map.lookup d ( declarationSites analysis )
               let locs = (,) packageName <$> Set.toList starts
               guard $ not $ null starts
-              return [ Map.singleton moduleFilePath ( liftA2 (,) locs (pure d) ) ]
+              return [ Map.singleton moduleFilePath ( Control.Applicative.liftA2 (,) locs (pure d) ) ]
         )
         dead
 
