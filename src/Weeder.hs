@@ -51,6 +51,7 @@ import Data.Set ( Set )
 import qualified Data.Set as Set
 import Data.Tree (Tree)
 import qualified Data.Tree as Tree
+import Data.BloomFilter.Hash
 
 -- generic-lens
 import Data.Generics.Labels ()
@@ -141,6 +142,10 @@ instance Show Declaration where
   show =
     declarationStableName
 
+
+-- TODO maybe we can make this faster by only hashing the location.
+instance Hashable Declaration where
+  hashIO32 d s = hashIO32 (declarationStableName d) s
 
 declarationStableName :: Declaration -> String
 declarationStableName Declaration { declModule, declOccName } =
