@@ -41,6 +41,7 @@ import qualified System.FilePath.Glob as Glob
 import GHC.Iface.Ext.Binary ( HieFileResult( HieFileResult, hie_file_result ), readHieFileWithVersion )
 import GHC.Iface.Ext.Types ( HieFile( hie_hs_file ), hieVersion )
 import GHC.Types.Name.Cache ( initNameCache, NameCache )
+import GHC.Builtin.Utils (knownKeyNames)
 
 -- optparse-applicative
 import Options.Applicative
@@ -257,7 +258,8 @@ getHieFiles hieExt hieDirectories requireHsFiles = do
   hieFileResultsChan <- newChan
 
   nameCache <-
-    initNameCache 'z' []
+    -- See: https://gitlab.haskell.org/ghc/ghc/-/issues/26055#note_624475
+    initNameCache 'z' knownKeyNames
 
   a <- async $ handleWeederException do
     readHieFiles nameCache hieFilePaths hieFileResultsChan hsFilePaths
