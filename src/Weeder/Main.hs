@@ -258,8 +258,8 @@ getHieFiles hieExt hieDirectories requireHsFiles = do
   hieFileResultsChan <- newChan
 
   nameCache <-
-    -- See: https://gitlab.haskell.org/ghc/ghc/-/issues/26055#note_624475
-    initNameCache 'z' knownKeyNames
+    -- See: https://gitlab.haskell.org/ghc/ghc/-/issues/26055
+    initNameCache 'r' knownKeyNames
 
   a <- async $ handleWeederException do
     readHieFiles nameCache hieFilePaths hieFileResultsChan hsFilePaths
