@@ -20,6 +20,10 @@ extra-source-files:
     test/Spec/*.stdout
     test/Spec/*.failing
 
+source-repository head
+  type:     git
+  location: git://github.com/ocharles/weeder.git
+
 library
   build-depends:
     , algebraic-graphs     ^>= 0.7
