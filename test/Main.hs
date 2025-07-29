@@ -77,6 +77,8 @@ integrationTestOutput hieDirectory = do
       graph' = export (defaultStyle (occNameString . Weeder.declOccName)) graph
   handle (\e -> hPrint stderr (e :: IOException)) $
     writeFile (hieDirectory <.> ".dot") graph'
-  pure (LBS.fromStrict $ encodeUtf8 $ pack $ unlines $ map Weeder.Run.formatWeed weeds)
+  -- Normalize weedPackage. We get different values here based on our version of cabal-install/ghc.
+  let weeds' = map (\weed -> weed {Weeder.Run.weedPackage = "main"}) weeds
+  pure (LBS.fromStrict $ encodeUtf8 $ pack $ unlines $ map Weeder.Run.formatWeed weeds')
   where
     configExpr = hieDirectory <.> ".toml"
