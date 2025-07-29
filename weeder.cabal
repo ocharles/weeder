@@ -6,7 +6,7 @@ author:        Ollie Charles <ollie@ocharles.org.uk>
 maintainer:    Ollie Charles <ollie@ocharles.org.uk>
 build-type:    Simple
 version:       2.10.0
-copyright:     Neil Mitchell 2017-2020, Oliver Charles 2020-2024
+copyright:     Neil Mitchell 2017-2020, Oliver Charles 2020-2025
 synopsis:      Detect dead code
 description:   Find declarations.
 homepage:      https://github.com/ocharles/weeder#readme
