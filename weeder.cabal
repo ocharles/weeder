@@ -81,6 +81,7 @@ test-suite weeder-test
     , tasty
     , tasty-hunit-compat
     , tasty-golden
+    , template-haskell
     , text
     , toml-reader
     , weeder
@@ -114,6 +115,8 @@ test-suite weeder-test
     Spec.RangeEnum.RangeEnum
     Spec.RootClasses.RootClasses
     Spec.StandaloneDeriving.StandaloneDeriving
+    Spec.TemplateHaskell.TH
+    Spec.TemplateHaskell.User
     Spec.TypeAliasGADT.TypeAliasGADT
     Spec.TypeDataDecl.TypeDataDecl
     Spec.Types.Types
