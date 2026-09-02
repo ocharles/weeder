@@ -21,6 +21,7 @@ module Weeder.Config
   , CompiledRegex(..)
     -- * Configuration provenance
   , Configured(..)
+  , configuredValue
     -- * Marking instances as roots
   , InstancePattern
   , modulePattern
@@ -67,14 +68,21 @@ data CompiledRegex = CompiledRegex
   }
 
 
--- | A configured value together with whether it was set explicitly (as opposed
--- to falling back to the default). We track this for the root sections so that
--- self-weeding only reports entries the user actually wrote: pointing out that
--- a default they never configured is unused would not be actionable.
-data Configured a = Configured
-  { configuredValue :: a
-  , configuredExplicitly :: Bool
-  } deriving (Eq, Show, Functor, Foldable, Traversable)
+-- | A configured value, and whether it was set explicitly or left at its
+-- default. We track this for the root sections so that self-weeding only
+-- reports entries the user actually wrote: pointing out that a default they
+-- never configured is unused would not be actionable.
+data Configured a
+  = Configured a
+  | Default a
+  deriving (Eq, Show, Functor, Foldable, Traversable)
+
+
+-- | The configured value, regardless of where it came from.
+configuredValue :: Configured a -> a
+configuredValue = \case
+  Configured a -> a
+  Default a -> a
 
 
 -- | Configuration that has been parsed from TOML (and can still be
@@ -125,12 +133,24 @@ pattern ModuleOnly m = InstancePattern Nothing Nothing (Just m)
 
 defaultConfig :: ConfigParsed
 defaultConfig = Config
-  { rootPatterns = Configured [ "Main.main", "^Paths_.*"] False
+  { rootPatterns = Default defaultRootPatterns
   , typeClassRoots = False
-  , rootInstances = Configured [ ClassOnly "\\.IsString$", ClassOnly "\\.IsList$" ] False
+  , rootInstances = Default defaultRootInstances
   , unusedTypes = False
-  , rootModules = Configured mempty False
+  , rootModules = Default defaultRootModules
   }
+
+
+defaultRootPatterns :: [String]
+defaultRootPatterns = [ "Main.main", "^Paths_.*" ]
+
+
+defaultRootInstances :: [InstancePattern String]
+defaultRootInstances = [ ClassOnly "\\.IsString$", ClassOnly "\\.IsList$" ]
+
+
+defaultRootModules :: [String]
+defaultRootModules = mempty
 
 
 instance TOML.DecodeTOML Config where
@@ -148,41 +168,25 @@ instance TOML.DecodeTOML ConfigParsed where
     rootModules <- getConfigured defaultRootModules "root-modules"
 
     pure Config{..}
-    where
-      Config
-        { rootPatterns = Configured defaultRootPatterns _
-        , rootInstances = Configured defaultRootInstances _
-        , rootModules = Configured defaultRootModules _
-        } = defaultConfig
 
 
--- | Decode an optional field, marking it 'configuredExplicitly' when present
--- and falling back to the given default otherwise.
+-- | Decode an optional field, marking it 'Configured' when present and falling
+-- back to the given 'Default' otherwise.
 getConfigured :: TOML.DecodeTOML a => a -> Text -> TOML.Decoder (Configured a)
-getConfigured def key = configured def <$> TOML.getFieldOpt key
-
-
--- | A value from the TOML if present, or the given default otherwise, recording
--- in 'configuredExplicitly' which of the two it was.
-configured :: a -> Maybe a -> Configured a
-configured def = \case
-  Just v  -> Configured v True
-  Nothing -> Configured def False
+getConfigured def key = maybe (Default def) Configured <$> TOML.getFieldOpt key
 
 
 decodeNoDefaults :: TOML.Decoder Config
 decodeNoDefaults = do
   -- In this mode every field must be specified, so every root section is
   -- explicit by construction.
-  rootPatterns <- explicit <$> TOML.getField "roots"
+  rootPatterns <- Configured <$> TOML.getField "roots"
   typeClassRoots <- TOML.getField "type-class-roots"
-  rootInstances <- explicit <$> TOML.getField "root-instances"
+  rootInstances <- Configured <$> TOML.getField "root-instances"
   unusedTypes <- TOML.getField "unused-types"
-  rootModules <- explicit <$> TOML.getField "root-modules"
+  rootModules <- Configured <$> TOML.getField "root-modules"
 
   either fail pure $ compileConfig Config{..}
-  where
-    explicit v = Configured v True
 
 
 instance TOML.DecodeTOML (InstancePattern String) where

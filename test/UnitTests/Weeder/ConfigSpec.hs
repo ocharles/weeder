@@ -15,11 +15,11 @@ tests =
 configToTomlTests :: Assertion
 configToTomlTests =
   let cf = Config
-        { rootPatterns = Configured mempty True
+        { rootPatterns = Configured mempty
         , typeClassRoots = True
-        , rootInstances = Configured [InstanceOnly "Quux\\\\[\\]", ClassOnly "[\\[\\\\[baz" <> ModuleOnly "[Quuux]", InstanceOnly "[\\[\\\\[baz" <> ClassOnly "[Quuux]" <> ModuleOnly "[Quuuux]"] True
+        , rootInstances = Configured [InstanceOnly "Quux\\\\[\\]", ClassOnly "[\\[\\\\[baz" <> ModuleOnly "[Quuux]", InstanceOnly "[\\[\\\\[baz" <> ClassOnly "[Quuux]" <> ModuleOnly "[Quuuux]"]
         , unusedTypes = True
-        , rootModules = Configured ["Foo\\.Bar", "Baz"] True
+        , rootModules = Configured ["Foo\\.Bar", "Baz"]
         }
       cf' = T.pack $ configToToml cf
    in TOML.decode cf' `shouldBe` Right cf

@@ -92,7 +92,7 @@ formatWeed = \case
 -- Returns a list of 'Weed's that can be displayed using
 -- 'formatWeed', and the final 'Analysis'.
 runWeeder :: Config -> [HieFile] -> ([Weed], Analysis)
-runWeeder weederConfig@Config{ rootPatterns = Configured rootPatterns rootPatternsExplicit, typeClassRoots, rootInstances = Configured rootInstances rootInstancesExplicit, rootModules = Configured rootModules rootModulesExplicit } hieFiles =
+runWeeder weederConfig@Config{ rootPatterns, typeClassRoots, rootInstances, rootModules } hieFiles =
   let
     asts = concatMap (Map.elems . getAsts . hie_asts) hieFiles
 
@@ -123,13 +123,13 @@ runWeeder weederConfig@Config{ rootPatterns = Configured rootPatterns rootPatter
         ( \d ->
             any
               ( \p -> matchTest ( compiledRegex p ) ( displayDeclaration d ) )
-              rootPatterns
+              ( configuredValue rootPatterns )
         )
         ( outputableDeclarations analysis )
 
     matchingModules =
       Set.filter
-        ((\s -> any (\p -> matchTest ( compiledRegex p ) s) rootModules) . moduleNameString . moduleName)
+        ((\s -> any (\p -> matchTest ( compiledRegex p ) s) ( configuredValue rootModules )) . moduleNameString . moduleName)
       ( Map.keysSet $ exports analysis )
 
     reachableSet =
@@ -178,11 +178,12 @@ runWeeder weederConfig@Config{ rootPatterns = Configured rootPatterns rootPatter
     -- because @unused-types@ happens to be disabled. Only patterns the user
     -- explicitly configured are reported, since pointing out that an
     -- unconfigured default is unused is not actionable.
-    deadRootPatterns
-      | not rootPatternsExplicit = []
-      | otherwise =
+    deadRootPatterns =
+      case rootPatterns of
+        Default _ -> []
+        Configured patterns ->
           [ regexSource p
-          | p <- rootPatterns
+          | p <- patterns
           , not $
               any
                 ( \d -> matchTest ( compiledRegex p ) ( displayDeclaration d ) )
@@ -197,23 +198,26 @@ runWeeder weederConfig@Config{ rootPatterns = Configured rootPatterns rootPatter
 
     deadRootInstances
       | typeClassRoots = []
-      | not rootInstancesExplicit = []
       | otherwise =
-          [ showInstancePattern ( regexSource <$> ip )
-          | ip <- rootInstances
-          , not $ any ( matchesInstancePattern analysis ip ) instanceRoots
-          ]
+          case rootInstances of
+            Default _ -> []
+            Configured patterns ->
+              [ showInstancePattern ( regexSource <$> ip )
+              | ip <- patterns
+              , not $ any ( matchesInstancePattern analysis ip ) instanceRoots
+              ]
 
     -- A @root-modules@ pattern that matches none of the modules Weeder analysed
     -- is also a weed.
     knownModuleNames =
       map ( moduleNameString . moduleName ) ( Map.keys ( modulePaths analysis ) )
 
-    deadRootModules
-      | not rootModulesExplicit = []
-      | otherwise =
+    deadRootModules =
+      case rootModules of
+        Default _ -> []
+        Configured patterns ->
           [ regexSource p
-          | p <- rootModules
+          | p <- patterns
           , not $ any ( \m -> matchTest ( compiledRegex p ) m ) knownModuleNames
           ]
 
@@ -239,7 +243,7 @@ runWeeder weederConfig@Config{ rootPatterns = Configured rootPatterns rootPatter
       -- through 'matchesInstancePattern'.
       InstanceRoot d c ->
         typeClassRoots
-          || any ( \ip -> matchesInstancePattern analysis ip ( d, c ) ) rootInstances
+          || any ( \ip -> matchesInstancePattern analysis ip ( d, c ) ) ( configuredValue rootInstances )
 
 
 -- | Does a @root-instances@ pattern match a given instance root (the
