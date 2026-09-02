@@ -1,0 +1,3 @@
+no declaration matches roots entry "Spec.SelfWeeding.SelfWeeding.doesNotExist"
+no instance matches root-instances entry { class = "\\.NoSuchClass$" }
+no module matches root-modules entry "^No.Such.Module$"

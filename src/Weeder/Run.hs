@@ -4,7 +4,7 @@
 {-# language NamedFieldPuns #-}
 {-# LANGUAGE FlexibleContexts #-}
 
-module Weeder.Run ( runWeeder, Weed(..), formatWeed ) where
+module Weeder.Run ( runWeeder, Weed(..), DeclarationWeed(..), DeadRoot(..), formatWeed ) where
 
 -- base
 import Control.Applicative ( liftA2 )
@@ -44,7 +44,16 @@ import Weeder
 import Weeder.Config
 
 
-data Weed = Weed
+-- | Something Weeder found that is unused: either a dead declaration in the
+-- analysed code, or a configured root that matched no identifiers (a weed in
+-- the configuration itself).
+data Weed
+  = WeedDeclaration DeclarationWeed
+  | WeedRoot DeadRoot
+
+
+-- | A dead declaration: code that is written but never reachable from a root.
+data DeclarationWeed = DeclarationWeed
   { weedPackage :: String
   , weedPath :: FilePath
   , weedLine :: Int
@@ -54,12 +63,29 @@ data Weed = Weed
   }
 
 
+-- | A configured root that no longer applies because it matches nothing.
+data DeadRoot
+  = -- | A @roots@ pattern (its source string) that matched no declaration.
+    DeadRootPattern String
+  | -- | A @root-instances@ entry (pretty-printed) that matched no instance.
+    DeadRootInstance String
+  | -- | A @root-modules@ pattern (its source string) that matched no module.
+    DeadRootModule String
+
+
 formatWeed :: Weed -> String
-formatWeed Weed{..} =
-  weedPackage <> ": " <> weedPath <> ":" <> show weedLine <> ":" <> show weedCol <> ": "
-    <> case weedPrettyPrintedType of
-      Nothing -> occNameString ( declOccName weedDeclaration )
-      Just t -> "(Instance) :: " <> t
+formatWeed = \case
+  WeedDeclaration DeclarationWeed{..} ->
+    weedPackage <> ": " <> weedPath <> ":" <> show weedLine <> ":" <> show weedCol <> ": "
+      <> case weedPrettyPrintedType of
+        Nothing -> occNameString ( declOccName weedDeclaration )
+        Just t -> "(Instance) :: " <> t
+  WeedRoot (DeadRootPattern src) ->
+    "no declaration matches roots entry " <> show src
+  WeedRoot (DeadRootInstance s) ->
+    "no instance matches root-instances entry " <> s
+  WeedRoot (DeadRootModule src) ->
+    "no module matches root-modules entry " <> show src
 
 -- | Run Weeder on the given .hie files with the given 'Config'.
 --
@@ -96,14 +122,14 @@ runWeeder weederConfig@Config{ rootPatterns, typeClassRoots, rootInstances, root
       Set.filter
         ( \d ->
             any
-              (`matchTest` displayDeclaration d)
-              rootPatterns
+              ( \p -> matchTest ( compiledRegex p ) ( displayDeclaration d ) )
+              ( configuredValue rootPatterns )
         )
         ( outputableDeclarations analysis )
 
     matchingModules =
       Set.filter
-        ((\s -> any (`matchTest` s) rootModules) . moduleNameString . moduleName)
+        ((\s -> any (\p -> matchTest ( compiledRegex p ) s) ( configuredValue rootModules )) . moduleNameString . moduleName)
       ( Map.keysSet $ exports analysis )
 
     reachableSet =
@@ -133,41 +159,113 @@ runWeeder weederConfig@Config{ rootPatterns, typeClassRoots, rootInstances, root
         )
         dead
 
-    weeds =
+    declarationWeeds =
       Map.toList warnings & concatMap \( weedPath, declarations ) ->
         sortOn fst declarations & map \( (weedPackage, (weedLine, weedCol)) , weedDeclaration ) ->
-          Weed { weedPrettyPrintedType = Map.lookup weedDeclaration (prettyPrintedType analysis)
-               , weedPackage
-               , weedPath
-               , weedLine
-               , weedCol
-               , weedDeclaration
-               }
+          WeedDeclaration DeclarationWeed
+            { weedPrettyPrintedType = Map.lookup weedDeclaration (prettyPrintedType analysis)
+            , weedPackage
+            , weedPath
+            , weedLine
+            , weedCol
+            , weedDeclaration
+            }
+
+    -- A @roots@ pattern that matches no identifier in the project is a weed in
+    -- the configuration itself: it no longer applies to any declaration. We
+    -- match against every local declaration rather than only the outputable
+    -- ones, so that a root naming a real type or constructor is not flagged just
+    -- because @unused-types@ happens to be disabled. Only patterns the user
+    -- explicitly configured are reported, since pointing out that an
+    -- unconfigured default is unused is not actionable.
+    deadRootPatterns =
+      case rootPatterns of
+        Default _ -> []
+        Configured patterns ->
+          [ regexSource p
+          | p <- patterns
+          , not $
+              any
+                ( \d -> matchTest ( compiledRegex p ) ( displayDeclaration d ) )
+                ( localDeclarations analysis )
+          ]
+
+    -- A @root-instances@ entry that matches no instance is likewise a weed.
+    -- When 'typeClassRoots' is set, @root-instances@ is ignored entirely, so we
+    -- don't report its entries.
+    instanceRoots =
+      [ ( d, c ) | InstanceRoot d c <- Set.toList ( implicitRoots analysis ) ]
+
+    deadRootInstances
+      | typeClassRoots = []
+      | otherwise =
+          case rootInstances of
+            Default _ -> []
+            Configured patterns ->
+              [ showInstancePattern ( regexSource <$> ip )
+              | ip <- patterns
+              , not $ any ( matchesInstancePattern analysis ip ) instanceRoots
+              ]
+
+    -- A @root-modules@ pattern that matches none of the modules Weeder analysed
+    -- is also a weed.
+    knownModuleNames =
+      map ( moduleNameString . moduleName ) ( Map.keys ( modulePaths analysis ) )
+
+    deadRootModules =
+      case rootModules of
+        Default _ -> []
+        Configured patterns ->
+          [ regexSource p
+          | p <- patterns
+          , not $ any ( \m -> matchTest ( compiledRegex p ) m ) knownModuleNames
+          ]
+
+    weeds =
+      declarationWeeds
+        <> map ( WeedRoot . DeadRootPattern ) deadRootPatterns
+        <> map ( WeedRoot . DeadRootInstance ) deadRootInstances
+        <> map ( WeedRoot . DeadRootModule ) deadRootModules
 
   in (weeds, analysis)
 
   where
 
     filterImplicitRoots :: Analysis -> Set Root -> Set Root
-    filterImplicitRoots Analysis{ prettyPrintedType, modulePaths } = Set.filter $ \case
+    filterImplicitRoots analysis = Set.filter $ \case
       DeclarationRoot _ -> True -- keep implicit roots for rewrite rules etc
 
       ModuleRoot _ -> True
 
-      InstanceRoot d c -> typeClassRoots || matchingType
-        where
-          matchingType =
-            let mt = Map.lookup d prettyPrintedType
-                matches = maybe (const False) (flip matchTest) mt
-            in any (maybe True matches) filteredInstances
+      -- [tag:RootInstanceMatching] The reachability check here and the
+      -- dead-root-instance check in 'deadRootInstances' must agree on what it
+      -- means for a 'root-instances' entry to match an instance; both go
+      -- through 'matchesInstancePattern'.
+      InstanceRoot d c ->
+        typeClassRoots
+          || any ( \ip -> matchesInstancePattern analysis ip ( d, c ) ) ( configuredValue rootInstances )
 
-          filteredInstances =
-            map instancePattern
-            . filter (maybe True (`matchTest` displayDeclaration c) . classPattern)
-            . filter (maybe True modulePathMatches . modulePattern)
-            $ rootInstances
 
-          modulePathMatches p = maybe False (p `matchTest`) (Map.lookup ( declModule d ) modulePaths)
+-- | Does a @root-instances@ pattern match a given instance root (the
+-- declaration of the instance and the declaration of its parent class)? An
+-- absent field always matches.
+--
+-- [ref:RootInstanceMatching]
+matchesInstancePattern
+  :: Analysis -> InstancePattern CompiledRegex -> ( Declaration, Declaration ) -> Bool
+matchesInstancePattern Analysis{ prettyPrintedType, modulePaths } ip ( d, c ) =
+       maybe True moduleMatches ( modulePattern ip )
+    && maybe True classMatches ( classPattern ip )
+    && maybe True typeMatches ( instancePattern ip )
+  where
+    moduleMatches p =
+      maybe False ( matchTest ( compiledRegex p ) ) ( Map.lookup ( declModule d ) modulePaths )
+
+    classMatches p =
+      matchTest ( compiledRegex p ) ( displayDeclaration c )
+
+    typeMatches p =
+      maybe False ( matchTest ( compiledRegex p ) ) ( Map.lookup d prettyPrintedType )
 
 
 displayDeclaration :: Declaration -> String

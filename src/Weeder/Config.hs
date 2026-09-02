@@ -17,11 +17,17 @@ module Weeder.Config
   , configToToml
   , decodeNoDefaults
   , defaultConfig
+    -- * Compiled regular expressions
+  , CompiledRegex(..)
+    -- * Configuration provenance
+  , Configured(..)
+  , configuredValue
     -- * Marking instances as roots
   , InstancePattern
   , modulePattern
   , instancePattern
   , classPattern
+  , showInstancePattern
   , pattern InstanceOnly
   , pattern ClassOnly
   , pattern ModuleOnly
@@ -37,6 +43,9 @@ import Data.List (intersperse, intercalate)
 -- containers
 import Data.Containers.ListUtils (nubOrd)
 
+-- text
+import Data.Text (Text)
+
 -- regex-tdfa
 import Text.Regex.TDFA ( Regex, RegexOptions ( defaultExecOpt, defaultCompOpt ) )
 import Text.Regex.TDFA.TDFA ( patternToRegex )
@@ -47,7 +56,33 @@ import qualified TOML
 
 
 -- | Configuration for Weeder analysis.
-type Config = ConfigType Regex
+type Config = ConfigType CompiledRegex
+
+
+-- | A compiled regular expression, paired with the source string it was
+-- compiled from. We keep the source around so that we can report which
+-- configured pattern is responsible when a pattern matches no identifiers.
+data CompiledRegex = CompiledRegex
+  { regexSource :: String
+  , compiledRegex :: Regex
+  }
+
+
+-- | A configured value, and whether it was set explicitly or left at its
+-- default. We track this for the root sections so that self-weeding only
+-- reports entries the user actually wrote: pointing out that a default they
+-- never configured is unused would not be actionable.
+data Configured a
+  = Configured a
+  | Default a
+  deriving (Eq, Show, Functor, Foldable, Traversable)
+
+
+-- | The configured value, regardless of where it came from.
+configuredValue :: Configured a -> a
+configuredValue = \case
+  Configured a -> a
+  Default a -> a
 
 
 -- | Configuration that has been parsed from TOML (and can still be
@@ -57,19 +92,19 @@ type ConfigParsed = ConfigType String
 
 -- | Underlying type for 'Config' and 'ConfigParsed'.
 data ConfigType a = Config
-  { rootPatterns :: [a]
+  { rootPatterns :: Configured [a]
     -- ^ Any declarations matching these regular expressions will be added to
     -- the root set.
   , typeClassRoots :: Bool
     -- ^ If True, consider all declarations in a type class as part of the root
     -- set. Overrides root-instances.
-  , rootInstances :: [InstancePattern a]
+  , rootInstances :: Configured [InstancePattern a]
     -- ^ All matching instances will be added to the root set. An absent field
     -- will always match.
   , unusedTypes :: Bool
     -- ^ Toggle to look for and output unused types. Type family instances will
     -- be marked as implicit roots.
-  , rootModules :: [a]
+  , rootModules :: Configured [a]
     -- ^ All matching modules will be added to the root set.
   } deriving (Eq, Show, Functor, Foldable, Traversable)
 
@@ -98,12 +133,24 @@ pattern ModuleOnly m = InstancePattern Nothing Nothing (Just m)
 
 defaultConfig :: ConfigParsed
 defaultConfig = Config
-  { rootPatterns = [ "Main.main", "^Paths_.*"]
+  { rootPatterns = Default defaultRootPatterns
   , typeClassRoots = False
-  , rootInstances = [ ClassOnly "\\.IsString$", ClassOnly "\\.IsList$" ]
+  , rootInstances = Default defaultRootInstances
   , unusedTypes = False
-  , rootModules = mempty
+  , rootModules = Default defaultRootModules
   }
+
+
+defaultRootPatterns :: [String]
+defaultRootPatterns = [ "Main.main", "^Paths_.*" ]
+
+
+defaultRootInstances :: [InstancePattern String]
+defaultRootInstances = [ ClassOnly "\\.IsString$", ClassOnly "\\.IsList$" ]
+
+
+defaultRootModules :: [String]
+defaultRootModules = mempty
 
 
 instance TOML.DecodeTOML Config where
@@ -114,22 +161,30 @@ instance TOML.DecodeTOML Config where
 
 instance TOML.DecodeTOML ConfigParsed where
   tomlDecoder = do
-    rootPatterns <- TOML.getFieldOr (rootPatterns defaultConfig) "roots"
+    rootPatterns <- getConfigured defaultRootPatterns "roots"
     typeClassRoots <- TOML.getFieldOr (typeClassRoots defaultConfig) "type-class-roots"
-    rootInstances <- TOML.getFieldOr (rootInstances defaultConfig) "root-instances"
+    rootInstances <- getConfigured defaultRootInstances "root-instances"
     unusedTypes <- TOML.getFieldOr (unusedTypes defaultConfig) "unused-types"
-    rootModules <- TOML.getFieldOr (rootModules defaultConfig) "root-modules"
+    rootModules <- getConfigured defaultRootModules "root-modules"
 
     pure Config{..}
 
 
+-- | Decode an optional field, marking it 'Configured' when present and falling
+-- back to the given 'Default' otherwise.
+getConfigured :: TOML.DecodeTOML a => a -> Text -> TOML.Decoder (Configured a)
+getConfigured def key = maybe (Default def) Configured <$> TOML.getFieldOpt key
+
+
 decodeNoDefaults :: TOML.Decoder Config
 decodeNoDefaults = do
-  rootPatterns <- TOML.getField "roots"
+  -- In this mode every field must be specified, so every root section is
+  -- explicit by construction.
+  rootPatterns <- Configured <$> TOML.getField "roots"
   typeClassRoots <- TOML.getField "type-class-roots"
-  rootInstances <- TOML.getField "root-instances"
+  rootInstances <- Configured <$> TOML.getField "root-instances"
   unusedTypes <- TOML.getField "unused-types"
-  rootModules <- TOML.getField "root-modules"
+  rootModules <- Configured <$> TOML.getField "root-modules"
 
   either fail pure $ compileConfig Config{..}
 
@@ -181,28 +236,28 @@ showInstancePattern = \case
       moduleField m = "module = " ++ show m
 
 
-compileRegex :: String -> Either String Regex
-compileRegex = bimap show (\p -> patternToRegex p defaultCompOpt defaultExecOpt) . parseRegex
+compileRegex :: String -> Either String CompiledRegex
+compileRegex src =
+  bimap show (\p -> CompiledRegex src (patternToRegex p defaultCompOpt defaultExecOpt)) (parseRegex src)
 
 
 compileConfig :: ConfigParsed -> Either String Config
 compileConfig conf@Config{ rootInstances, rootPatterns, rootModules } =
   traverse compileRegex conf'
   where
-    rootInstances' = nubOrd rootInstances
-    rootPatterns' = nubOrd rootPatterns
-    rootModules' = nubOrd rootModules
-    conf' = conf{ rootInstances = rootInstances', rootPatterns = rootPatterns', rootModules = rootModules' }
+    conf' = conf
+      { rootInstances = fmap nubOrd rootInstances
+      , rootPatterns = fmap nubOrd rootPatterns
+      , rootModules = fmap nubOrd rootModules
+      }
 
 
 configToToml :: ConfigParsed -> String
 configToToml Config{..}
   = unlines . intersperse mempty $
-      [ "roots = " ++ show rootPatterns
+      [ "roots = " ++ show (configuredValue rootPatterns)
       , "type-class-roots = " ++ map toLower (show typeClassRoots)
-      , "root-instances = " ++ "[" ++ intercalate "," (map showInstancePattern rootInstances') ++ "]"
+      , "root-instances = " ++ "[" ++ intercalate "," (map showInstancePattern (configuredValue rootInstances)) ++ "]"
       , "unused-types = " ++ map toLower (show unusedTypes)
-      , "root-modules = " ++ show rootModules
+      , "root-modules = " ++ show (configuredValue rootModules)
       ]
-  where
-    rootInstances' = rootInstances
