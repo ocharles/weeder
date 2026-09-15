@@ -1,0 +1,6 @@
+# roots and root-instances are deliberately left unset, so they fall back to
+# their defaults (which match nothing here). root-modules is set explicitly to
+# keep the module alive. Self-weeding must stay silent: defaults are not weeds.
+root-modules = [ '^Spec\.DefaultsNotReported\.' ]
+
+type-class-roots = false

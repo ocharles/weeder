@@ -1,0 +1,9 @@
+roots = [ "Spec.SelfWeeding.SelfWeeding.root"
+        , "Spec.SelfWeeding.SelfWeeding.doesNotExist"
+        ]
+
+type-class-roots = false
+
+root-instances = [ { class = '\.NoSuchClass$' } ]
+
+root-modules = [ "^No.Such.Module$" ]

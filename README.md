@@ -111,6 +111,35 @@ root-instances = [ { module = "Spec.ConfigInstanceModules.Module1", instance = "
                  ]
 ```
 
+## Self-weeding
+
+Over the lifetime of a project, roots that were once needed can become stale:
+the declaration they pointed at gets renamed or removed, leaving behind a
+`roots` pattern, `root-instances` entry or `root-modules` pattern that no longer
+matches anything. Such an entry is a weed in the configuration itself.
+
+Weeder reports these automatically. Any `roots` pattern that matches no
+declaration, any `root-instances` entry that matches no instance, and any
+`root-modules` pattern that matches no module, is reported alongside the regular
+weeds (and likewise contributes to the weeds-found exit code):
+
+``` shell
+$ weeder
+no declaration matches roots entry "^Main.runServer$"
+no instance matches root-instances entry { class = "\\.ToJSON$" }
+no module matches root-modules entry "^Test\\."
+```
+
+A `roots` pattern counts as matching as long as it matches any identifier Weeder
+is aware of, even one that never appears in the output (such as a type or
+constructor when `unused-types` is disabled), so a root naming real code is not
+reported just because of the current analysis mode.
+
+Only entries you have explicitly configured are reported. Default `roots` and
+`root-instances` are left alone, since telling you that a default you never
+wrote is currently unused would not be actionable. When `type-class-roots` is
+set, `root-instances` is ignored entirely, so its entries are not reported.
+
 ## Exit codes
 
 Weeder emits the following exit codes:

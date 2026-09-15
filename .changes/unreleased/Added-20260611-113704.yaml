@@ -1,0 +1,5 @@
+kind: Added
+body: Weeder now reports explicitly configured `roots` patterns, `root-instances`
+  entries and `root-modules` patterns that match no identifiers, so stale configuration
+  entries are surfaced as weeds (self-weeding). Defaults are left alone.
+time: 2026-06-11T11:37:04.101033366+02:00

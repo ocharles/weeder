@@ -100,6 +100,7 @@ test-suite weeder-test
     Spec.ConfigInstanceModules.Module1
     Spec.ConfigInstanceModules.Module2
     Spec.ConfigInstanceModules.Module3
+    Spec.DefaultsNotReported.DefaultsNotReported
     Spec.DeriveGeneric.DeriveGeneric
     Spec.InstanceRootConstraint.InstanceRootConstraint
     Spec.InstanceTypeclass.InstanceTypeclass
@@ -113,6 +114,7 @@ test-suite weeder-test
     Spec.OverloadedStrings.OverloadedStrings
     Spec.RangeEnum.RangeEnum
     Spec.RootClasses.RootClasses
+    Spec.SelfWeeding.SelfWeeding
     Spec.StandaloneDeriving.StandaloneDeriving
     Spec.TypeAliasGADT.TypeAliasGADT
     Spec.TypeDataDecl.TypeDataDecl

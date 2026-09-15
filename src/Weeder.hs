@@ -18,6 +18,7 @@ module Weeder
   , analyseHieFile
   , emptyAnalysis
   , outputableDeclarations
+  , localDeclarations
 
     -- ** Reachability
   , Root(..)
@@ -29,7 +30,7 @@ module Weeder
    where
 
 -- algebraic-graphs
-import Algebra.Graph ( Graph, edge, empty, overlay, vertex, stars, star, overlays )
+import Algebra.Graph ( Graph, edge, empty, overlay, vertex, stars, star, overlays, vertexSet )
 import Algebra.Graph.ToGraph ( dfs )
 
 -- base
@@ -245,6 +246,18 @@ reachable Analysis{ dependencyGraph, exports } roots =
 outputableDeclarations :: Analysis -> Set Declaration
 outputableDeclarations Analysis{ declarationSites } =
   Map.keysSet declarationSites
+
+
+-- | Every declaration defined in one of the analysed modules, including ones
+-- that never appear in the output (such as types and constructors when
+-- @unused-types@ is disabled). Used to decide whether a configured root matches
+-- any real identifier in the project, as opposed to whether it keeps anything
+-- alive. Declarations from external packages — which appear in the graph only
+-- as dependency targets — are excluded, so a root that matches only an external
+-- symbol is still reported as unused.
+localDeclarations :: Analysis -> Set Declaration
+localDeclarations Analysis{ dependencyGraph, modulePaths } =
+  Set.filter (\d -> declModule d `Map.member` modulePaths) (vertexSet dependencyGraph)
 
 
 -- Generate an initial graph of the current HieFile.
