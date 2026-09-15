@@ -3,6 +3,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 2.11.0 - 2026-09-15
+
+### Added
+* Weeder now reports explicitly configured `roots` patterns, `root-instances` entries and `root-modules` patterns that match no identifiers, so stale configuration entries are surfaced as weeds (self-weeding). Defaults are left alone. (#204)
+
 ## 2.10.0 - 2025-07-29
 
 ### Added
