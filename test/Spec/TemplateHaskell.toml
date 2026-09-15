@@ -1,0 +1,7 @@
+roots = [ "Spec.TemplateHaskell.User.root" ]
+
+type-class-roots = false
+
+unused-types = false
+
+root-instances = []
