@@ -239,7 +239,7 @@ mainWithConfig hieExt hieDirectories requireHsFiles weederConfig = handleWeederE
 -- Will rethrow exceptions as 'ExceptionInLinkedThread' to the calling thread.
 getHieFiles :: String -> [FilePath] -> Bool -> IO [HieFile]
 getHieFiles hieExt hieDirectories requireHsFiles = do
-  let hiePat = "**/*." <> hieExtNoSep
+  let hiePat = "**/?*." <> hieExtNoSep
       hieExtNoSep = case uncons hieExt of
         Just (c0, hieExtNoSep')
           | isExtSeparator c0 -> hieExtNoSep'
@@ -247,7 +247,7 @@ getHieFiles hieExt hieDirectories requireHsFiles = do
 
   hieFilePaths :: [FilePath] <-
     concat <$>
-      traverse ( getFilesIn hiePat )
+      traverse ( getFilesMatchingDotsIn hiePat )
         ( if null hieDirectories
           then ["./."]
           else hieDirectories
@@ -283,17 +283,33 @@ getHieFiles hieExt hieDirectories requireHsFiles = do
           writeChan hieFileResultsChan (Just hieFileResult)
 
 
--- | Recursively search for files with the given extension in given directory
+-- | Recursively search for files matching pattern in given directory
 getFilesIn
   :: String
   -- ^ Only files matching this pattern are considered.
   -> FilePath
   -- ^ Directory to look in
   -> IO [FilePath]
-getFilesIn pat root = do
-  [result] <- Glob.globDir [Glob.compile pat] root
-  pure result
+getFilesIn pat = Glob.globDir1 (Glob.compile pat)
 
+-- | Recursively search for files matching pattern in given directory including those starting with '.'
+getFilesMatchingDotsIn
+  :: String
+  -- ^ Only files matching this pattern are considered.
+  -> FilePath
+  -- ^ Directory to look in
+  -> IO [FilePath]
+getFilesMatchingDotsIn pat root = globDir1With globOpt (Glob.compile pat) root
+  where
+    -- like globDir1 but accepts glob options
+    globDir1With o p r = Glob.globDirWith o [p] r >>= \case
+      ([f], _unmatched) -> pure f
+      _otherwise -> error "Impossible: one pattern should produce one result"
+    -- #190: Discover hidden directories, i.e. `.hie/`, like in weeder <2.9
+    globOpt =
+      Glob.globDefault
+        { Glob.matchOptions = Glob.matchDefault{Glob.matchDotsImplicitly = True}
+        }
 
 -- | Read a .hie file, exiting if it's an incompatible version.
 readCompatibleHieFileOrExit :: NameCache -> FilePath -> IO HieFile
