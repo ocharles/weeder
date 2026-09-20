@@ -89,6 +89,19 @@ src/Dhall/TH.hs:196: toNestedHaskellType
 (Please note these warnings are just for demonstration and not necessarily weeds
 in the Dhall project).
 
+## Command line options
+
+| Option                   | Description |
+| ------------------------ | ----------- |
+| `--config ARG`           | A file path for Weeder's configuration. (default: `./weeder.toml`) |
+| `--hie-extension ARG`    | Extension of HIE files (default: `".hie"`) |
+| `--hie-directory ARG`    | A directory to look for .hie files in. Maybe specified multiple times. Default `./.` |
+| `--require-hs-files`     | Skip stale .hie files with no matching .hs modules |
+| `--write-default-config` | Write a default configuration file if the one specified by `--config` does not exist |
+| `--no-default-fields`    | Do not use default field values for missing fields in the configuration. |
+| `-N`                     | Use all available cores. |
+| `-j ARG`                 | Number of cores to use. (default: 1) |
+
 ## Configuration options
 
 | Name             | Default value                        | Description |
