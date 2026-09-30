@@ -186,11 +186,9 @@ parseCLIArguments = do
 -- Exits with one of the listed Weeder exit codes on failure.
 main :: IO ()
 main = handleWeederException do
-  CLIArguments{..} <-
+  cliArgs@CLIArguments{writeDefaultConfig, noDefaultFields, configPath} <-
     execParser $
       info (parseCLIArguments <**> helper <**> versionP) mempty
-
-  traverse_ setNumCapabilities capabilities
 
   configExists <-
     doesFileExist configPath
@@ -201,7 +199,7 @@ main = handleWeederException do
 
   decodeConfig noDefaultFields configPath
     >>= either throwConfigError pure
-    >>= mainWithConfig hieExt hieDirectories requireHsFiles plain
+    >>= mainWithConfig cliArgs
   where
     throwConfigError e =
       throwIO $ ExitConfigFailure (displayException e)
@@ -220,12 +218,16 @@ main = handleWeederException do
 
 -- | Run Weeder in the current working directory with a given 'Config'.
 --
+-- The 'configPath' and 'writeDefaultConfig' fields of 'CLIArguments' will be ignored.
+--
 -- This will recursively find all files with the given extension in the given directories, perform
 -- analysis, and report all unused definitions according to the 'Config'.
 --
 -- Exits with one of the listed Weeder exit codes on failure.
-mainWithConfig :: String -> [FilePath] -> Bool -> Bool -> Config -> IO ()
-mainWithConfig hieExt hieDirectories requireHsFiles forceNoColour weederConfig = handleWeederException do
+mainWithConfig :: CLIArguments -> Config -> IO ()
+mainWithConfig CLIArguments{hieExt, hieDirectories, requireHsFiles, capabilities, plain} weederConfig = handleWeederException do
+  traverse_ setNumCapabilities capabilities
+
   hieFiles <-
     getHieFiles hieExt hieDirectories requireHsFiles
 
@@ -236,7 +238,7 @@ mainWithConfig hieExt hieDirectories requireHsFiles forceNoColour weederConfig =
       runWeeder weederConfig hieFiles
 
   colouredOutput <-
-    if forceNoColour
+    if plain
       then pure False
       else hSupportsANSIColor stdout
 
