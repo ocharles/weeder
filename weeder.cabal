@@ -27,6 +27,7 @@ source-repository head
 library
   build-depends:
     , algebraic-graphs     >= 0.7 && <0.9
+    , ansi-terminal        >= 1.0 && <1.2
     , async                ^>= 2.2.0
     , base                 >= 4.17 && < 4.23
     , bytestring           >= 0.10.9 && < 0.13

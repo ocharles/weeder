@@ -11,6 +11,9 @@
 
 module Weeder.Main ( main, mainWithConfig, getHieFiles ) where
 
+-- ansi-terminal
+import System.Console.ANSI (hSupportsANSIColor)
+
 -- async
 import Control.Concurrent.Async ( async, link, ExceptionInLinkedThread ( ExceptionInLinkedThread ) )
 
@@ -23,7 +26,7 @@ import Data.Foldable
 import Data.Maybe ( isJust, catMaybes )
 import Data.Version ( showVersion )
 import System.Exit ( ExitCode(..), exitWith )
-import System.IO ( stderr, hPutStrLn )
+import System.IO ( stderr, hPutStrLn, stdout )
 
 -- toml-reader
 import qualified TOML
@@ -227,7 +230,9 @@ mainWithConfig hieExt hieDirectories requireHsFiles weederConfig = handleWeederE
     (weeds, _) =
       runWeeder weederConfig hieFiles
 
-  mapM_ (putStrLn . formatWeed) weeds
+  colouredOutput <- hSupportsANSIColor stdout
+
+  mapM_ (putStrLn . formatWeed colouredOutput) weeds
 
   unless (null weeds) $ throwIO ExitWeedsFound
 

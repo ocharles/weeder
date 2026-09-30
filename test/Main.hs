@@ -82,6 +82,7 @@ integrationTestOutput hieDirectory = do
         Weeder.Run.WeedDeclaration d -> Weeder.Run.WeedDeclaration d {Weeder.Run.weedPackage = "main"}
         _ -> w
       weeds' = map normalize weeds
-  pure (LBS.fromStrict $ encodeUtf8 $ pack $ unlines $ map Weeder.Run.formatWeed weeds')
+  -- Coloured output disabled for the tests
+  pure (LBS.fromStrict $ encodeUtf8 $ pack $ unlines $ map (Weeder.Run.formatWeed False) weeds')
   where
     configExpr = hieDirectory <.> ".toml"

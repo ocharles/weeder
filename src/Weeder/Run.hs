@@ -6,6 +6,9 @@
 
 module Weeder.Run ( runWeeder, Weed(..), DeclarationWeed(..), DeadRoot(..), formatWeed ) where
 
+-- ansi-terminal
+import System.Console.ANSI.Codes
+
 -- base
 import Control.Applicative ( liftA2 )
 import Control.Monad ( guard )
@@ -73,19 +76,30 @@ data DeadRoot
     DeadRootModule String
 
 
-formatWeed :: Weed -> String
-formatWeed = \case
+formatWeed :: Bool -> Weed -> String
+formatWeed colouredOutput = \case
   WeedDeclaration DeclarationWeed{..} ->
-    weedPackage <> ": " <> weedPath <> ":" <> show weedLine <> ":" <> show weedCol <> ": "
+    weedPackage <> ": " <> stylePath weedPath <> ":" <> show weedLine <> ":" <> show weedCol <> ": "
       <> case weedPrettyPrintedType of
-        Nothing -> occNameString ( declOccName weedDeclaration )
-        Just t -> "(Instance) :: " <> t
+        Nothing -> styleIdentifier $ occNameString ( declOccName weedDeclaration )
+        Just t -> "(Instance) :: " <> styleInstanceType t
   WeedRoot (DeadRootPattern src) ->
     "no declaration matches roots entry " <> show src
   WeedRoot (DeadRootInstance s) ->
     "no instance matches root-instances entry " <> s
   WeedRoot (DeadRootModule src) ->
     "no module matches root-modules entry " <> show src
+  where
+    stylePath s = if colouredOutput
+      then setSGRCode [SetColor Foreground Vivid Red] ++ s ++ setSGRCode []
+      else s
+    styleIdentifier s = if colouredOutput
+      then setSGRCode [SetColor Foreground Vivid Yellow] ++ s ++ setSGRCode []
+      else s
+    styleInstanceType s = if colouredOutput
+      then setSGRCode [SetColor Foreground Vivid Blue] ++ s ++ setSGRCode []
+      else s
+
 
 -- | Run Weeder on the given .hie files with the given 'Config'.
 --
