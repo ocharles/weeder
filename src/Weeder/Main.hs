@@ -127,6 +127,7 @@ data CLIArguments = CLIArguments
   , writeDefaultConfig :: Bool
   , noDefaultFields :: Bool
   , capabilities :: Maybe Int
+  , plain :: Bool
   }
 
 
@@ -162,6 +163,10 @@ parseCLIArguments = do
           ( long "no-default-fields"
               <> help "Do not use default field values for missing fields in the configuration."
           )
+    plain <- switch
+          ( long "plain"
+              <> help "Do not style the output with ANSI colour codes, even if the terminal supports them."
+          )
     capabilities <- nParser <|> jParser
     pure CLIArguments{..}
     where
@@ -196,7 +201,7 @@ main = handleWeederException do
 
   decodeConfig noDefaultFields configPath
     >>= either throwConfigError pure
-    >>= mainWithConfig hieExt hieDirectories requireHsFiles
+    >>= mainWithConfig hieExt hieDirectories requireHsFiles plain
   where
     throwConfigError e =
       throwIO $ ExitConfigFailure (displayException e)
@@ -219,8 +224,8 @@ main = handleWeederException do
 -- analysis, and report all unused definitions according to the 'Config'.
 --
 -- Exits with one of the listed Weeder exit codes on failure.
-mainWithConfig :: String -> [FilePath] -> Bool -> Config -> IO ()
-mainWithConfig hieExt hieDirectories requireHsFiles weederConfig = handleWeederException do
+mainWithConfig :: String -> [FilePath] -> Bool -> Bool -> Config -> IO ()
+mainWithConfig hieExt hieDirectories requireHsFiles forceNoColour weederConfig = handleWeederException do
   hieFiles <-
     getHieFiles hieExt hieDirectories requireHsFiles
 
@@ -230,7 +235,10 @@ mainWithConfig hieExt hieDirectories requireHsFiles weederConfig = handleWeederE
     (weeds, _) =
       runWeeder weederConfig hieFiles
 
-  colouredOutput <- hSupportsANSIColor stdout
+  colouredOutput <-
+    if forceNoColour
+      then pure False
+      else hSupportsANSIColor stdout
 
   mapM_ (putStrLn . formatWeed colouredOutput) weeds
 
