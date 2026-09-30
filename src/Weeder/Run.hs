@@ -8,6 +8,12 @@ module Weeder.Run ( runWeeder, Weed(..), DeclarationWeed(..), DeadRoot(..), form
 
 -- ansi-terminal
 import System.Console.ANSI.Codes
+  ( SGR(SetColor)
+  , ConsoleLayer(Foreground)
+  , ColorIntensity(Vivid)
+  , Color(Blue, Red, Yellow)
+  , setSGRCode
+  )
 
 -- base
 import Control.Applicative ( liftA2 )
