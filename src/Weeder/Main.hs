@@ -170,11 +170,11 @@ parseCLIArguments = do
     where
       noColorParser = flag' False
           ( long "no-color"
-              <> help "Do not style the output with ANSI colour codes, even if the terminal supports them."
+              <> help "Do not style the output with ANSI color codes, even if the terminal supports them."
           )
       colorParser = flag' True
           ( long "color"
-              <> help "Style the output with ANSI colour codes if the terminal supports them, even if NO_COLOR is set."
+              <> help "Style the output with ANSI color codes if the terminal supports them, even if NO_COLOR is set."
           )
       jParser = Just <$> option auto
           ( short 'j'
