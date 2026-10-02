@@ -169,6 +169,10 @@ Weeder emits the following exit codes:
 - To mark all instances in a module `M` as roots, add `{ module = "^M$" }`
   to `root-instances`.
 
+- By default, Weeder styles its output with ANSI color codes whenever possible.
+  To disable this, either call Weeder with the `--no-color` flag, or set
+  [NO_COLOR=1](https://no-color.org/).
+
 # Limitations
 
 Weeder currently has a few limitations:

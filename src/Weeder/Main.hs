@@ -11,6 +11,9 @@
 
 module Weeder.Main ( main, mainWithConfig, getHieFiles ) where
 
+-- ansi-terminal
+import System.Console.ANSI (hSupportsANSIColor)
+
 -- async
 import Control.Concurrent.Async ( async, link, ExceptionInLinkedThread ( ExceptionInLinkedThread ) )
 
@@ -22,8 +25,9 @@ import Control.Monad ( unless, when )
 import Data.Foldable
 import Data.Maybe ( isJust, catMaybes )
 import Data.Version ( showVersion )
+import System.Environment.Blank (getEnv)
 import System.Exit ( ExitCode(..), exitWith )
-import System.IO ( stderr, hPutStrLn )
+import System.IO ( stderr, hPutStrLn, stdout )
 
 -- toml-reader
 import qualified TOML
@@ -124,6 +128,7 @@ data CLIArguments = CLIArguments
   , writeDefaultConfig :: Bool
   , noDefaultFields :: Bool
   , capabilities :: Maybe Int
+  , color :: Maybe Bool
   }
 
 
@@ -159,9 +164,18 @@ parseCLIArguments = do
           ( long "no-default-fields"
               <> help "Do not use default field values for missing fields in the configuration."
           )
+    color <- optional (noColorParser <|> colorParser)
     capabilities <- nParser <|> jParser
     pure CLIArguments{..}
     where
+      noColorParser = flag' False
+          ( long "no-color"
+              <> help "Do not style the output with ANSI color codes, even if the terminal supports them."
+          )
+      colorParser = flag' True
+          ( long "color"
+              <> help "Style the output with ANSI color codes if the terminal supports them, even if NO_COLOR is set."
+          )
       jParser = Just <$> option auto
           ( short 'j'
               <> value 1
@@ -178,11 +192,9 @@ parseCLIArguments = do
 -- Exits with one of the listed Weeder exit codes on failure.
 main :: IO ()
 main = handleWeederException do
-  CLIArguments{..} <-
+  cliArgs@CLIArguments{writeDefaultConfig, noDefaultFields, configPath} <-
     execParser $
       info (parseCLIArguments <**> helper <**> versionP) mempty
-
-  traverse_ setNumCapabilities capabilities
 
   configExists <-
     doesFileExist configPath
@@ -193,7 +205,7 @@ main = handleWeederException do
 
   decodeConfig noDefaultFields configPath
     >>= either throwConfigError pure
-    >>= mainWithConfig hieExt hieDirectories requireHsFiles
+    >>= mainWithConfig cliArgs
   where
     throwConfigError e =
       throwIO $ ExitConfigFailure (displayException e)
@@ -212,12 +224,16 @@ main = handleWeederException do
 
 -- | Run Weeder in the current working directory with a given 'Config'.
 --
+-- The 'configPath' and 'writeDefaultConfig' fields of 'CLIArguments' will be ignored.
+--
 -- This will recursively find all files with the given extension in the given directories, perform
 -- analysis, and report all unused definitions according to the 'Config'.
 --
 -- Exits with one of the listed Weeder exit codes on failure.
-mainWithConfig :: String -> [FilePath] -> Bool -> Config -> IO ()
-mainWithConfig hieExt hieDirectories requireHsFiles weederConfig = handleWeederException do
+mainWithConfig :: CLIArguments -> Config -> IO ()
+mainWithConfig CLIArguments{hieExt, hieDirectories, requireHsFiles, capabilities, color} weederConfig = handleWeederException do
+  traverse_ setNumCapabilities capabilities
+
   hieFiles <-
     getHieFiles hieExt hieDirectories requireHsFiles
 
@@ -227,7 +243,17 @@ mainWithConfig hieExt hieDirectories requireHsFiles weederConfig = handleWeederE
     (weeds, _) =
       runWeeder weederConfig hieFiles
 
-  mapM_ (putStrLn . formatWeed) weeds
+  colouredOutput <- case color of
+    Just False -> pure False
+    Just True -> hSupportsANSIColor stdout
+    Nothing -> do
+      noColorEnv <- getEnv "NO_COLOR"
+      case noColorEnv of
+        Nothing -> hSupportsANSIColor stdout
+        Just "" -> hSupportsANSIColor stdout
+        Just _ -> pure False
+
+  mapM_ (putStrLn . formatWeed colouredOutput) weeds
 
   unless (null weeds) $ throwIO ExitWeedsFound
 
