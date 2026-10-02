@@ -25,6 +25,7 @@ import Control.Monad ( unless, when )
 import Data.Foldable
 import Data.Maybe ( isJust, catMaybes )
 import Data.Version ( showVersion )
+import System.Environment.Blank (getEnv)
 import System.Exit ( ExitCode(..), exitWith )
 import System.IO ( stderr, hPutStrLn, stdout )
 
@@ -127,7 +128,7 @@ data CLIArguments = CLIArguments
   , writeDefaultConfig :: Bool
   , noDefaultFields :: Bool
   , capabilities :: Maybe Int
-  , plain :: Bool
+  , color :: Maybe Bool
   }
 
 
@@ -163,13 +164,18 @@ parseCLIArguments = do
           ( long "no-default-fields"
               <> help "Do not use default field values for missing fields in the configuration."
           )
-    plain <- switch
-          ( long "plain"
-              <> help "Do not style the output with ANSI colour codes, even if the terminal supports them."
-          )
+    color <- optional (noColorParser <|> colorParser)
     capabilities <- nParser <|> jParser
     pure CLIArguments{..}
     where
+      noColorParser = flag' False
+          ( long "no-color"
+              <> help "Do not style the output with ANSI colour codes, even if the terminal supports them."
+          )
+      colorParser = flag' True
+          ( long "color"
+              <> help "Style the output with ANSI colour codes if the terminal supports them, even if NO_COLOR is set."
+          )
       jParser = Just <$> option auto
           ( short 'j'
               <> value 1
@@ -225,7 +231,7 @@ main = handleWeederException do
 --
 -- Exits with one of the listed Weeder exit codes on failure.
 mainWithConfig :: CLIArguments -> Config -> IO ()
-mainWithConfig CLIArguments{hieExt, hieDirectories, requireHsFiles, capabilities, plain} weederConfig = handleWeederException do
+mainWithConfig CLIArguments{hieExt, hieDirectories, requireHsFiles, capabilities, color} weederConfig = handleWeederException do
   traverse_ setNumCapabilities capabilities
 
   hieFiles <-
@@ -237,10 +243,15 @@ mainWithConfig CLIArguments{hieExt, hieDirectories, requireHsFiles, capabilities
     (weeds, _) =
       runWeeder weederConfig hieFiles
 
-  colouredOutput <-
-    if plain
-      then pure False
-      else hSupportsANSIColor stdout
+  colouredOutput <- case color of
+    Just False -> pure False
+    Just True -> hSupportsANSIColor stdout
+    Nothing -> do
+      noColorEnv <- getEnv "NO_COLOR"
+      case noColorEnv of
+        Nothing -> hSupportsANSIColor stdout
+        Just "" -> hSupportsANSIColor stdout
+        Just _ -> pure False
 
   mapM_ (putStrLn . formatWeed colouredOutput) weeds
 
