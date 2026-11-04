@@ -9,9 +9,12 @@ module Weeder.Run ( runWeeder, Weed(..), DeclarationWeed(..), DeadRoot(..), form
 -- base
 import Control.Applicative ( liftA2 )
 import Control.Monad ( guard )
-import Data.List ( sortOn )
+import Data.List ( intercalate, sortOn )
 import Data.Foldable ( fold, foldl' )
 import Data.Function ( (&) )
+
+-- algebraic-graphs
+import Algebra.Graph.ToGraph ( toAdjacencyMap )
 
 -- containers
 import Data.Set ( Set )
@@ -106,17 +109,19 @@ runWeeder weederConfig@Config{ rootPatterns, typeClassRoots, rootInstances, root
     analysis =
       analyseEvidenceUses' analysis1
 
+    graph =
+      toAdjacencyMap ( dependencyGraph analysis )
+
+    matchesRootPattern =
+      matchesAny ( configuredValue rootPatterns )
+
     -- We limit ourselves to outputable declarations only rather than all
     -- declarations in the graph. This has a slight performance benefit,
     -- at the cost of having to assume that a non-outputable declaration
     -- will always either be an implicit root or irrelevant.
     roots =
       Set.filter
-        ( \d ->
-            any
-              ( \p -> matchTest ( compiledRegex p ) ( displayDeclaration d ) )
-              ( configuredValue rootPatterns )
-        )
+        ( matchesRootPattern . displayDeclaration )
         ( outputableDeclarations analysis )
 
     matchingModules =
@@ -125,7 +130,8 @@ runWeeder weederConfig@Config{ rootPatterns, typeClassRoots, rootInstances, root
       ( Map.keysSet $ exports analysis )
 
     reachableSet =
-      reachable
+      reachableIn
+        graph
         analysis
         ( Set.map DeclarationRoot roots
         <> Set.map ModuleRoot matchingModules
@@ -174,12 +180,16 @@ runWeeder weederConfig@Config{ rootPatterns, typeClassRoots, rootInstances, root
       case rootPatterns of
         Default _ -> []
         Configured patterns ->
+          let
+            -- Only the few declarations that match some root pattern need to
+            -- be tried against each pattern individually.
+            namesMatchingRoots =
+              filter matchesRootPattern
+                ( map displayDeclaration ( Set.toList ( localDeclarationsIn graph analysis ) ) )
+          in
           [ regexSource p
           | p <- patterns
-          , not $
-              any
-                ( \d -> matchTest ( compiledRegex p ) ( displayDeclaration d ) )
-                ( localDeclarations analysis )
+          , not $ any ( matchTest ( compiledRegex p ) ) namesMatchingRoots
           ]
 
     -- A @root-instances@ entry that matches no instance is likewise a weed.
@@ -258,6 +268,20 @@ matchesInstancePattern Analysis{ prettyPrintedType, modulePaths } ip ( d, c ) =
 
     typeMatches p =
       maybe False ( matchTest ( compiledRegex p ) ) ( Map.lookup d prettyPrintedType )
+
+
+-- | Does a string match any of the given regular expressions?
+matchesAny :: [ CompiledRegex ] -> String -> Bool
+matchesAny [] = const False
+matchesAny patterns =
+  -- Matching once against the alternation of all the patterns is much faster
+  -- than trying each in turn. Each pattern already parses on its own, so
+  -- wrapping it in a group keeps its anchors and alternatives to itself, and
+  -- regex-tdfa has no backreferences for the renumbered groups to break. The
+  -- fallback should therefore never be needed.
+  case compileRegex ( intercalate "|" [ "(" <> regexSource p <> ")" | p <- patterns ] ) of
+    Right combined -> matchTest ( compiledRegex combined )
+    Left _ -> \s -> any ( \p -> matchTest ( compiledRegex p ) s ) patterns
 
 
 displayDeclaration :: Declaration -> String
