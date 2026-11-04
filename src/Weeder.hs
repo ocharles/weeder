@@ -17,6 +17,7 @@ module Weeder
   , analyseEvidenceUses
   , analyseHieFile
   , emptyAnalysis
+  , EvidenceResolution(..)
   , outputableDeclarations
   , localDeclarations
 
@@ -35,10 +36,10 @@ import Algebra.Graph.ToGraph ( dfs )
 
 -- base
 import Control.Applicative ( Alternative )
-import Control.Monad ( guard, msum, when, unless, mzero, forM_, void )
+import Control.Monad ( guard, msum, when, unless, mzero )
 import Data.Traversable ( for )
-import Data.Maybe ( mapMaybe, isJust, fromJust )
-import Data.Foldable ( for_, traverse_, toList )
+import Data.Maybe ( mapMaybe )
+import Data.Foldable ( foldl', for_, traverse_, toList )
 import Data.List ( intercalate, find )
 import Data.Monoid ( First( First ), getFirst )
 import GHC.Generics ( Generic )
@@ -50,6 +51,7 @@ import qualified Data.Map.Strict as Map
 import Data.Sequence ( Seq )
 import Data.Set ( Set )
 import qualified Data.Set as Set
+import Data.Graph ( flattenSCC, stronglyConnComp )
 import Data.Tree (Tree)
 import qualified Data.Tree as Tree
 
@@ -80,8 +82,8 @@ import GHC.Iface.Ext.Types
   , getEvBindDeps
   )
 import GHC.Iface.Ext.Utils
-  ( EvidenceInfo( EvidenceInfo, evidenceVar )
-  , RefMap
+  ( RefMap
+  , generateReferencesMap
   , isEvidenceBind
   , findEvidenceUse
   , hieTypeToIface
@@ -95,7 +97,7 @@ import GHC.Iface.Type
   , IfaceTyCon (IfaceTyCon, ifaceTyConName)
   )
 import GHC.Types.Name
-  ( Name, nameModule_maybe, nameOccName
+  ( Name, nameModule_maybe, nameOccName, isExternalName
   , OccName
   , isDataOcc
   , isDataSymOcc
@@ -104,16 +106,14 @@ import GHC.Types.Name
   , isVarOcc
   , occNameString
   )
-import GHC.Types.Unique.FM ( UniqFM, addToUFM_C, lookupUFM, elemUFM )
 import GHC.Types.SrcLoc ( RealSrcSpan, realSrcSpanEnd, realSrcSpanStart, srcLocLine, srcLocCol )
-import GHC.Utils.Monad (anyM)
 
 -- lens
-import Control.Lens ( (%=) )
+import Control.Lens ( (%=), (.=) )
 
 -- mtl
 import Control.Monad.State.Class ( MonadState )
-import Control.Monad.State.Strict ( State, modify', get, execState )
+import Control.Monad.State.Strict ( get )
 import Control.Monad.Reader.Class ( MonadReader, asks )
 
 -- parallel
@@ -185,17 +185,48 @@ data Analysis =
     , requestedEvidence :: Map Declaration (Set Name)
       -- ^ Map from declarations to the names containing evidence uses that
       -- should be followed and treated as dependencies of the declaration.
-      -- We use this to be able to delay analysing evidence uses until later,
-      -- allowing us to begin the rest of the analysis before we have read all
-      -- hie files.
+      -- Always empty in the 'Analysis' that 'analyseHieFile' produces, as it
+      -- resolves these against the .hie file being analysed.
+    , pendingEvidence :: Map Declaration (Set Declaration)
+      -- ^ Evidence uses that are not bound in the module that uses them,
+      -- keyed by the declaration that uses them. These are resolved through
+      -- 'evidenceExports' by 'analyseEvidenceUses' once all .hie files have
+      -- been analysed.
+    , evidenceExports :: Map Declaration EvidenceResolution
+      -- ^ What each module level evidence binding resolves to in its defining
+      -- module, for resolving 'pendingEvidence' in other modules.
     }
   deriving
     ( Generic, NFData )
 
 
 instance Semigroup Analysis where
-  (<>) (Analysis a1 b1 c1 d1 e1 f1 g1) (Analysis a2 b2 c2 d2 e2 f2 g2)=
-    Analysis (a1 `overlay` a2) (Map.unionWith (<>) b1 b2) (c1 <> c2) (Map.unionWith (<>) d1 d2) (e1 <> e2) (f1 <> f2) (Map.unionWith (<>) g1 g2)
+  (<>) (Analysis a1 b1 c1 d1 e1 f1 g1 h1 i1) (Analysis a2 b2 c2 d2 e2 f2 g2 h2 i2)=
+    Analysis (a1 `overlay` a2) (Map.unionWith (<>) b1 b2) (c1 <> c2) (Map.unionWith (<>) d1 d2) (e1 <> e2) (f1 <> f2) (Map.unionWith (<>) g1 g2) (Map.unionWith (<>) h1 h2) (Map.unionWith (<>) i1 i2)
+
+
+-- | What an evidence variable resolves to using the references of a single
+-- module.
+data EvidenceResolution =
+  EvidenceResolution
+    { resolvedInstances :: !( Set Declaration )
+      -- ^ Instance bindings the evidence was traced to, and any module level
+      -- evidence let bindings on the way.
+    , externalEvidence :: !( Set Declaration )
+      -- ^ Evidence bound in another module, which is traced further through
+      -- 'evidenceExports'.
+    }
+  deriving
+    ( Generic, NFData )
+
+
+instance Semigroup EvidenceResolution where
+  EvidenceResolution a1 b1 <> EvidenceResolution a2 b2 =
+    EvidenceResolution (a1 <> a2) (b1 <> b2)
+
+
+instance Monoid EvidenceResolution where
+  mempty = EvidenceResolution mempty mempty
 
 
 instance Monoid Analysis where
@@ -211,7 +242,7 @@ data AnalysisInfo =
 
 -- | The empty analysis - the result of analysing zero @.hie@ files.
 emptyAnalysis :: Analysis
-emptyAnalysis = Analysis empty mempty mempty mempty mempty mempty mempty
+emptyAnalysis = Analysis empty mempty mempty mempty mempty mempty mempty mempty mempty
 
 
 -- | A root for reachability analysis.
@@ -296,6 +327,9 @@ analyseHieFile' = do
   for_ hieASTs topLevelAnalysis
 
   for_ hie_exports ( analyseExport hie_module )
+
+  Config{ typeClassRoots } <- asks weederConfig
+  unless typeClassRoots resolveFileEvidence
 
 
 lookupType :: HieFile -> TypeIndex -> HieTypeFix
@@ -746,90 +780,127 @@ requestEvidence n d = do
       }
 
 
--- | Follow the given evidence use back to their instance bindings
-followEvidenceUses :: UniqFM Name (Set (EvidenceInfo TypeIndex)) -> Name -> Set Declaration
-followEvidenceUses cachedEvidence name =
-  let res = case lookupUFM cachedEvidence name of
-              Just x -> x
-              Nothing -> mempty
+-- | Resolve the evidence uses requested while analysing the current .hie file
+-- using only that file's references, and add a dependency on everything they
+-- resolve to. Evidence not bound in this module is recorded in
+-- 'pendingEvidence', and the module level evidence bound here in
+-- 'evidenceExports', so that 'analyseEvidenceUses' can connect the two
+-- without keeping every .hie file in memory.
+resolveFileEvidence :: ( MonadState Analysis m, MonadReader AnalysisInfo m ) => m ()
+resolveFileEvidence = do
+  HieFile{ hie_asts = HieASTs hieASTs } <- asks currentHieFile
+  Analysis{ requestedEvidence } <- get
 
-   in Set.map fromJust
-       $ Set.filter isJust
-       $ Set.map (nameToDeclaration . evidenceVar)
-       $ res
+  let rf = generateReferencesMap ( Map.elems hieASTs )
 
--- Adapted from GHC's getEvidenceTree
-populateEvidenceTreeWith ::
-     Ord a
-  => RefMap a
-  -> ((EvVarSource, Scope) -> Bool)
-  -> Name
-  -> State (UniqFM Name (Set (EvidenceInfo a))) ()
-populateEvidenceTreeWith refmap evSrcFilter var = go [var]
+      boundHere =
+        [ n
+        | ( Right n, refs ) <- Map.toList rf
+        , isExternalName n
+        , any ( any isEvidenceBind . identInfo . snd ) refs
+        ]
+
+      resolutions =
+        resolveEvidenceLocally rf $
+          Set.toList ( mconcat ( Map.elems requestedEvidence ) ) ++ boundHere
+
+      resolutionOf n = Map.findWithDefault mempty n resolutions
+
+  for_ ( Map.toList requestedEvidence ) \( d, names ) -> do
+    let EvidenceResolution{ resolvedInstances, externalEvidence } = foldMap resolutionOf names
+    #dependencyGraph %= overlay ( star d ( Set.toList resolvedInstances ) )
+    unless ( Set.null externalEvidence ) $
+      #pendingEvidence %= Map.insertWith (<>) d externalEvidence
+
+  for_ boundHere \n ->
+    for_ ( nameToDeclaration n ) \d ->
+      #evidenceExports %= Map.insert d ( resolutionOf n )
+
+  #requestedEvidence .= mempty
+
+
+-- | Follow evidence variables back to the instance bindings they use, through
+-- any evidence let bindings, using the references of a single module. Adapted
+-- from GHC's getEvidenceTree.
+resolveEvidenceLocally :: RefMap a -> [ Name ] -> Map Name EvidenceResolution
+resolveEvidenceLocally rf vars =
+  Data.Foldable.foldl' resolveComponent mempty ( stronglyConnComp nodes )
+
   where
-    go [] = pure ()
-    go vars@(var:_) = do
-      seenMap <- get
-      if var `elemUFM` seenMap
-      then do
-        forM_ vars $ \v -> do
-          -- we just checked that var exists, so fromJust is safe
-          modify' (\m -> addToUFM_C mappend m v (fromJust $ lookupUFM m var))
-        pure ()
-      else do
-        let mxs = Map.lookup (Right var) refmap
-        case mxs of
-          Just xs -> do
-            case find (any isEvidenceBind . identInfo . snd) xs of
-              Just (sp,dets) -> do
-                let mtyp = identType dets
-                case mtyp of
-                  Nothing -> pure ()
-                  Just typ -> do
-                    void $ flip anyM (Set.toList $ identInfo dets) $ \det -> do
-                       case det of
-                         EvidenceVarBind src@(EvLetBind (getEvBindDeps -> xs)) scp spn -> do
-                           forM_ vars $ \v -> do
-                             let evInfo = EvidenceInfo var sp typ (Just (src, scp, spn))
-                             modify' (\m -> addToUFM_C mappend m v (Set.singleton evInfo))
-                           mapM_ (\v -> go (v:vars)) xs
-                           pure True
-                         EvidenceVarBind src scp spn ->
-                           if evSrcFilter (src, scp)
-                           then do
-                             forM_ vars $ \v -> do
-                               let evInfo = EvidenceInfo var sp typ (Just (src,scp,spn))
-                               modify' (\m -> addToUFM_C mappend m v (Set.singleton evInfo))
-                             pure True
-                           else pure False
-                         _ -> pure False
-              -- It is externally bound, we are not interested in them
-              Nothing ->  pure ()
-          Nothing -> pure ()
+
+    -- Recursive dictionaries make the evidence graph cyclic, so we resolve it
+    -- a strongly connected component at a time: every variable in a component
+    -- reaches the same evidence. 'stronglyConnComp' returns components in
+    -- reverse topological order, so the components a component depends on
+    -- have always been resolved before it.
+    -- Dependencies within the component are not in 'resolved' yet, so they
+    -- contribute nothing beyond their own evidence, which is already included.
+    resolveComponent resolved component =
+      let members = flattenSCC component
+          resolution =
+            foldMap ( \( r, _, _ ) -> r ) members
+              <> foldMap
+                   ( \dep -> Map.findWithDefault mempty dep resolved )
+                   [ dep | ( _, _, deps ) <- members, dep <- deps ]
+      in Data.Foldable.foldl'
+           ( \m ( _, var, _ ) -> Map.insert var resolution m )
+           resolved
+           members
+
+    nodes =
+      [ ( ( r, var, deps ), var, deps ) | ( var, ( r, deps ) ) <- Map.toList ( explore mempty vars ) ]
+
+    explore seen [] = seen
+    explore seen ( var : rest )
+      | Map.member var seen = explore seen rest
+      | otherwise =
+          let node@( _, deps ) = evidenceNode var
+          in explore ( Map.insert var node seen ) ( deps ++ rest )
+
+    -- What a single evidence variable contributes itself, and the evidence
+    -- variables it depends on.
+    evidenceNode var =
+      case Map.lookup ( Right var ) rf >>= find ( any isEvidenceBind . identInfo . snd ) of
+        Nothing
+          | isExternalName var -> ( mempty{ externalEvidence = declarations var }, [] )
+          | otherwise -> ( mempty, [] )
+        Just ( _, dets )
+          | Just _ <- identType dets -> firstBinding var ( Set.toList ( identInfo dets ) )
+          | otherwise -> ( mempty, [] )
+
+    firstBinding _ [] = ( mempty, [] )
+    firstBinding var ( det : dets ) =
+      case det of
+        EvidenceVarBind ( EvLetBind ( getEvBindDeps -> deps ) ) _ _ ->
+          ( mempty{ resolvedInstances = declarations var }, deps )
+        EvidenceVarBind EvInstBind{} ModuleScope _ ->
+          ( mempty{ resolvedInstances = declarations var }, [] )
+        _ ->
+          firstBinding var dets
+
+    declarations = foldMap Set.singleton . nameToDeclaration
 
 
--- | Follow evidence uses listed under 'requestedEvidence' back to their
--- instance bindings, and connect their corresponding declaration to those bindings.
-analyseEvidenceUses :: RefMap TypeIndex -> Analysis -> Analysis
-analyseEvidenceUses rf a@Analysis{ requestedEvidence, dependencyGraph }  = do
-  let combinedNames = mconcat (Map.elems requestedEvidence)
-      -- We combine all the names in all sets into one set, because the names
-      -- are duplicated a lot. In one example, the number of elements in the
-      -- combined sizes of all the sets are 16961625 as opposed to the
-      -- number of elements by combining all sets into one: 200330, that's an
-      -- 80x difference!
+-- | Connect evidence uses listed under 'pendingEvidence' to the instances that
+-- the defining modules resolved them to in 'evidenceExports'.
+analyseEvidenceUses :: Analysis -> Analysis
+analyseEvidenceUses a@Analysis{ pendingEvidence, evidenceExports, dependencyGraph } =
+  let resolved =
+        Map.fromSet resolve ( mconcat ( Map.elems pendingEvidence ) )
 
-      ce = flip execState mempty $ forM_ (Set.toList combinedNames) $
-              populateEvidenceTreeWith
-                rf
-                (\case
-                    (EvInstBind _ _, ModuleScope) -> True
-                    _ -> False)
+      resolve d = go ( Set.singleton d ) [ d ] mempty
 
-      declMap  = Map.fromSet (followEvidenceUses ce)  combinedNames
-        -- Map.! is safe because declMap contains all elements of v by definition
+      go _ [] acc = acc
+      go seen ( d : ds ) acc =
+        case Map.lookup d evidenceExports of
+          Nothing -> go seen ds acc
+          Just EvidenceResolution{ resolvedInstances, externalEvidence } ->
+            let new = externalEvidence Set.\\ seen
+            in go ( seen <> new ) ( Set.toList new ++ ds ) ( acc <> resolvedInstances )
 
-      graphs = map (\(d, v) -> star d ((Set.toList $ foldMap (declMap Map.!) v)))
-                 (Map.toList requestedEvidence)
+      graphs =
+        [ star d ( Set.toList ( foldMap ( resolved Map.! ) ds ) )
+        | ( d, ds ) <- Map.toList pendingEvidence
+        ]
 
-   in a { dependencyGraph = overlays (dependencyGraph : graphs) }
+   in a { dependencyGraph = overlays ( dependencyGraph : graphs ) }

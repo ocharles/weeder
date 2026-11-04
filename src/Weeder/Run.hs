@@ -26,11 +26,9 @@ import GHC.Plugins
   , moduleName
   , moduleNameString
   )
-import GHC.Iface.Ext.Types ( HieFile( hie_asts ), getAsts )
-import GHC.Iface.Ext.Utils (generateReferencesMap)
+import GHC.Iface.Ext.Types ( HieFile )
 
 -- parallel
-import Control.Parallel (pseq)
 import Control.Parallel.Strategies (parMap, rdeepseq)
 
 -- regex-tdfa
@@ -94,24 +92,18 @@ formatWeed = \case
 runWeeder :: Config -> [HieFile] -> ([Weed], Analysis)
 runWeeder weederConfig@Config{ rootPatterns, typeClassRoots, rootInstances, rootModules } hieFiles =
   let
-    asts = concatMap (Map.elems . getAsts . hie_asts) hieFiles
-
-    rf = generateReferencesMap asts
-
     analyses =
       parMap rdeepseq (\hf -> execState (analyseHieFile weederConfig hf) emptyAnalysis) hieFiles
 
     analyseEvidenceUses' =
       if typeClassRoots
         then id
-        else analyseEvidenceUses rf
+        else analyseEvidenceUses
 
     analysis1 =
       Data.Foldable.foldl' mappend mempty analyses
 
-    -- Evaluating 'analysis1' first allows us to begin analysis
-    -- while hieFiles is still being read (since rf depends on all hie files)
-    analysis = analysis1 `pseq`
+    analysis =
       analyseEvidenceUses' analysis1
 
     -- We limit ourselves to outputable declarations only rather than all
