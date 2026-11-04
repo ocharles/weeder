@@ -19,6 +19,7 @@ module Weeder.Config
   , defaultConfig
     -- * Compiled regular expressions
   , CompiledRegex(..)
+  , compileRegex
     -- * Configuration provenance
   , Configured(..)
   , configuredValue
@@ -236,6 +237,8 @@ showInstancePattern = \case
       moduleField m = "module = " ++ show m
 
 
+-- | Compile a POSIX extended regular expression, or return why it does not
+-- parse.
 compileRegex :: String -> Either String CompiledRegex
 compileRegex src =
   bimap show (\p -> CompiledRegex src (patternToRegex p defaultCompOpt defaultExecOpt)) (parseRegex src)

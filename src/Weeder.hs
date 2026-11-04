@@ -20,10 +20,12 @@ module Weeder
   , EvidenceResolution(..)
   , outputableDeclarations
   , localDeclarations
+  , localDeclarationsIn
 
     -- ** Reachability
   , Root(..)
   , reachable
+  , reachableIn
 
     -- * Declarations
   , Declaration(..)
@@ -32,7 +34,9 @@ module Weeder
 
 -- algebraic-graphs
 import Algebra.Graph ( Graph, edge, empty, overlay, vertex, stars, star, overlays, vertexSet )
-import Algebra.Graph.ToGraph ( dfs )
+import Algebra.Graph.AdjacencyMap ( AdjacencyMap )
+import qualified Algebra.Graph.AdjacencyMap as AdjacencyMap
+import Algebra.Graph.ToGraph ( dfs, toAdjacencyMap )
 
 -- base
 import Control.Applicative ( Alternative )
@@ -262,8 +266,16 @@ data Root
 
 -- | Determine the set of all declaration reachable from a set of roots.
 reachable :: Analysis -> Set Root -> Set Declaration
-reachable Analysis{ dependencyGraph, exports } roots =
-  Set.fromList ( dfs dependencyGraph ( foldMap rootDeclarations roots ) )
+reachable analysis =
+  reachableIn ( toAdjacencyMap ( dependencyGraph analysis ) ) analysis
+
+
+-- | 'reachable', given 'dependencyGraph' already converted to an
+-- 'AdjacencyMap'. Converting the graph is expensive for a large project, so
+-- callers that need it more than once should convert it once.
+reachableIn :: AdjacencyMap Declaration -> Analysis -> Set Root -> Set Declaration
+reachableIn graph Analysis{ exports } roots =
+  Set.fromList ( dfs graph ( foldMap rootDeclarations roots ) )
 
   where
 
@@ -287,8 +299,20 @@ outputableDeclarations Analysis{ declarationSites } =
 -- as dependency targets — are excluded, so a root that matches only an external
 -- symbol is still reported as unused.
 localDeclarations :: Analysis -> Set Declaration
-localDeclarations Analysis{ dependencyGraph, modulePaths } =
-  Set.filter (\d -> declModule d `Map.member` modulePaths) (vertexSet dependencyGraph)
+localDeclarations analysis =
+  onlyLocal analysis (vertexSet (dependencyGraph analysis))
+
+
+-- | 'localDeclarations', given 'dependencyGraph' already converted to an
+-- 'AdjacencyMap'.
+localDeclarationsIn :: AdjacencyMap Declaration -> Analysis -> Set Declaration
+localDeclarationsIn graph analysis =
+  onlyLocal analysis (AdjacencyMap.vertexSet graph)
+
+
+onlyLocal :: Analysis -> Set Declaration -> Set Declaration
+onlyLocal Analysis{ modulePaths } =
+  Set.filter (\d -> declModule d `Map.member` modulePaths)
 
 
 -- Generate an initial graph of the current HieFile.
